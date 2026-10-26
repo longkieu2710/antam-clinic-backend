@@ -1,0 +1,45 @@
+# =============================================================================
+# Cấu hình chạy trên máy dev (4 container của CSDL/docker-compose.yml, cổng 5430–5433)
+# Chạy trong Docker: dùng profile "docker" (application-docker.yml)
+# =============================================================================
+server:
+  port: 8080
+
+spring:
+  application:
+    name: antam-clinic
+  sql:
+    init:
+      mode: never   # schema do nhóm DB quản lý bằng script trong CSDL/, ứng dụng không tự tạo bảng
+
+app:
+  hub-site: S0          # trạm trung tâm: /api/master/** và /api/hq/** luôn đi trạm này
+  db:
+    username: admin
+    password: password123
+    pool-size: 5
+  # Mã chi nhánh (ma-cn) phải khớp CHI_NHANH.MaCN trong dữ liệu đang chạy (bản phân tán: CN1..CN3)
+  sites:
+    s0:
+      name: Trung tâm
+      url: jdbc:postgresql://localhost:5430/ql_phongkham_hub
+    s1:
+      name: Cầu Giấy
+      ma-cn: CN1
+      url: jdbc:postgresql://localhost:5431/ql_phongkham_cn1
+    s2:
+      name: Đống Đa
+      ma-cn: CN2
+      url: jdbc:postgresql://localhost:5432/ql_phongkham_cn2
+    s3:
+      name: Ba Đình
+      ma-cn: CN3
+      url: jdbc:postgresql://localhost:5433/ql_phongkham_cn3
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    vn.antam.clinic: INFO

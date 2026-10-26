@@ -1,0 +1,12 @@
+# Profile "docker": backend chạy như 1 container trong cùng mạng với 4 container DB
+# (SPRING_PROFILES_ACTIVE=docker) → dùng tên container và cổng 5432 bên trong mạng Docker.
+app:
+  sites:
+    s0:
+      url: jdbc:postgresql://site_s0_trungtam:5432/ql_phongkham_hub
+    s1:
+      url: jdbc:postgresql://site_s1_caugiay:5432/ql_phongkham_cn1
+    s2:
+      url: jdbc:postgresql://site_s2_dongda:5432/ql_phongkham_cn2
+    s3:
+      url: jdbc:postgresql://site_s3_badinh:5432/ql_phongkham_cn3

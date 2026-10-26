@@ -1,0 +1,8 @@
+target/
+*.log
+.idea/
+*.iml
+.vscode/
+.DS_Store
+# bản build của frontend được sinh vào đây
+src/main/resources/static/
