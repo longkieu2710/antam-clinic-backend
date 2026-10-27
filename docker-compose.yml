@@ -1,0 +1,55 @@
+# =============================================================================
+# Chạy ứng dụng An Tâm Clinic bằng Docker: web (nginx + React) và api (Spring Boot)
+#
+# File này KHÔNG tạo CSDL: 4 container PostgreSQL do nhóm DB quản lý (CSDL/docker-compose.yml).
+# Container api chỉ nối vào mạng Docker của chúng để gọi bằng tên container (profile "docker").
+#
+#   1) cd ../../CSDL && docker compose up -d     (lần đầu thêm: scripts/init_db.sh)
+#   2) docker compose up -d --build              (chạy trong thư mục backend/)
+#   3) Mở http://localhost:3000  ·  Swagger: http://localhost:3000/swagger-ui.html
+#
+# Cách gọn hơn: ./scripts/docker_app.sh — tự dò tên mạng của cụm CSDL, build, chạy, chờ api sẵn sàng.
+# Repo frontend phải nằm cạnh repo này (source_code/backend + source_code/frontend): web build từ ../frontend.
+#
+# Biến môi trường (đặt trước lệnh hoặc trong file .env cạnh file này):
+#   WEB_PORT   cổng giao diện trên máy           (mặc định 3000)
+#   API_PORT   cổng backend trên máy             (mặc định 8080 — trùng nếu đang chạy backend trong IntelliJ)
+#   DB_NETWORK mạng Docker của 4 container CSDL  (mặc định csdl_default = thư mục CSDL + "_default")
+# =============================================================================
+name: antam-clinic
+
+services:
+  api:
+    build: .
+    image: antam-clinic-backend:latest
+    container_name: antam_clinic_api
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    ports:
+      - "${API_PORT:-8080}:8080"
+    networks:
+      - app
+      - csdl
+    restart: unless-stopped
+
+  web:
+    build: ../frontend
+    image: antam-clinic-frontend:latest
+    container_name: antam_clinic_web
+    environment:
+      API_UPSTREAM: http://api:8080
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    depends_on:
+      - api
+    networks:
+      - app
+    restart: unless-stopped
+
+networks:
+  # mạng riêng giữa web và api
+  app: {}
+  # mạng có sẵn của cụm CSDL (được tạo khi chạy docker compose up trong thư mục CSDL)
+  csdl:
+    external: true
+    name: ${DB_NETWORK:-csdl_default}

@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.TransactionSystemException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -54,7 +55,9 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "BAD_JSON", "Dữ liệu gửi lên sai định dạng (ngày phải là yyyy-MM-dd, số phải là số).", null, null, null);
     }
 
-    @ExceptionHandler({DataAccessException.class, TransactionSystemException.class})
+    // CannotCreateTransactionException: method @Transactional không mở được kết nối khi trạm tắt
+    // (chạy bằng Docker, container đã dừng thì tên site_sX… không còn phân giải được → UnknownHostException)
+    @ExceptionHandler({DataAccessException.class, TransactionSystemException.class, CannotCreateTransactionException.class})
     public ResponseEntity<ApiErrorResponse> database(Exception ex) {
         // Rollback lỗi (thường vì kết nối đã bị Hikari đóng sau lỗi 08xxx) đè lên lỗi gốc → báo theo lỗi gốc
         if (ex instanceof TransactionSystemException tse && tse.getApplicationException() != null) {
@@ -87,7 +90,8 @@ public class GlobalExceptionHandler {
                             + " qua postgres_fdw (" + fdw.group(0) + ") — kiểm tra container của trạm " + branch + ".",
                     nvl(dbMessage, rootMessage(ex)), state, null);
         }
-        if (ex instanceof CannotGetJdbcConnectionException || (state != null && state.startsWith("08"))
+        if (ex instanceof CannotGetJdbcConnectionException || ex instanceof CannotCreateTransactionException
+                || (state != null && state.startsWith("08"))
                 || (state == null && sql != null && "Connection is closed".equals(sql.getMessage()))) {
             return build(HttpStatus.SERVICE_UNAVAILABLE, "SITE_UNAVAILABLE",
                     "Không kết nối được trạm CSDL " + nvl(SiteContext.get(), "") + ". Kiểm tra container Docker của trạm này.",

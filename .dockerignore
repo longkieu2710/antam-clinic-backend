@@ -1,0 +1,8 @@
+# Build image chỉ cần pom.xml + src/ — bỏ qua target/, .idea/, .git/…
+*
+!pom.xml
+!src/
+
+# Bản build frontend (npm run build ghi vào đây) không đưa vào image API:
+# khi chạy bằng Docker, frontend là container riêng (nginx)
+src/main/resources/static/
