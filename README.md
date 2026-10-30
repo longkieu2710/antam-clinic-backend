@@ -8,10 +8,12 @@ source_code/
 ├── backend/                  repo antam-clinic-backend · Java 21 · Spring Boot 4.1 · JdbcClient (SQL thuần) · springdoc
 │   ├── README.md, CLAUDE.md  tài liệu chung của cả ứng dụng (file này)
 │   ├── docker-compose.yml    web (nginx + React) + api (Spring Boot), nối vào mạng Docker của cụm DB
+│   ├── docker-compose.phan-tan.yml  4 cặp web + api theo cơ sở (Trung tâm, CN1–CN3) trên 1 máy (mục 1.2)
 │   ├── Dockerfile            image backend
 │   ├── scripts/init_db.sh    dựng 4 container PostgreSQL (S0–S3) + nạp schema, dữ liệu, replication, FDW
 │   ├── scripts/tat_jit.sh    tắt / bật JIT của PostgreSQL trên 4 container (truy vấn toàn chuỗi nhanh hơn)
 │   ├── scripts/docker_app.sh build + chạy web và api bằng Docker (mục 1.1)
+│   ├── scripts/phan_tan.sh   chạy 4 cặp web + api theo cơ sở, giả lập mất mạng từng cơ sở (mục 1.2)
 │   └── .claude/              skills/ (quy ước dự án: skills/conventions/SKILL.md) · agents/ (spring-boot-engineer, code-reviewer...)
 └── frontend/                 repo antam-clinic-frontend · React 19 · Vite 8 · TypeScript · Ant Design 6 · TanStack Query · React Router
     ├── README.md, CLAUDE.md  bản ngắn: cách chạy FE + quy ước FE
@@ -75,6 +77,45 @@ cd source_code/backend/scripts && ./docker_app.sh   # tự dò mạng của cụ
 - Backend tắt: nginx trả JSON `502 API_UNAVAILABLE` nên giao diện vẫn hiện thông báo dễ hiểu. Một trạm DB tắt: API trả `503 SITE_UNAVAILABLE` / `CHAIN_UNAVAILABLE` như khi chạy ngoài Docker.
 - `docker-compose.yml` và `scripts/` nằm trong repo backend; `Dockerfile` + `nginx/` của frontend nằm trong repo frontend. Compose build frontend từ `../frontend`, nên cần clone 2 repo cạnh nhau như cây thư mục ở trên.
 
+### 1.2. Triển khai theo cơ sở: mỗi cơ sở một FE + BE + CSDL
+
+Cùng một source FE và BE, chọn bản bằng biến môi trường của **backend** (frontend đọc `GET /api/system/mode` lúc mở
+trang rồi tự hiện đúng giao diện — không cần build FE riêng cho từng cơ sở):
+
+| Biến | Bản | Dữ liệu chi nhánh | Giao diện |
+|---|---|---|---|
+| (không đặt) / `APP_MODE=all` | một bản cho mọi trạm — như trước | chi nhánh trong `X-Site` | đủ mọi màn, có dropdown chọn chi nhánh |
+| `APP_MODE=branch APP_LOCAL_SITE=S1` | bản đặt tại cơ sở CN1 | luôn S1 (`X-Site` khác → 400 `WRONG_SITE`); chỉ mở pool S0 + S1 | khoá vào CN1; có thuốc / bệnh / dịch vụ và hồ sơ toàn chuỗi (cần kết nối S0); không có lương cơ sở, chi nhánh, báo cáo toàn chuỗi |
+| `APP_MODE=hq` | bản Trung tâm | không phục vụ (404 `NOT_SERVED`) | chỉ các màn làm việc với S0 + tổng quan hệ thống |
+
+Bản chi nhánh khi **mất kết nối Trung tâm** vẫn: tiếp đón (tự tra cứu trong chi nhánh), thêm bệnh nhân (mã
+`BN-CN1-0001` do chi nhánh cấp), tạo lượt khám / chữa, kê đơn, danh mục chi nhánh, báo cáo chi nhánh. Không làm được:
+sửa danh mục chung, hồ sơ toàn chuỗi, tạo lượt cho bệnh nhân chưa có hồ sơ tại chi nhánh.
+
+Chạy thử cả 4 cơ sở trên 1 máy (cần cụm DB đang chạy như mục 1):
+
+```bash
+cd source_code/backend/scripts
+./phan_tan.sh up              # Trung tâm :3100 · Cầu Giấy :3101 · Đống Đa :3102 · Ba Đình :3103
+./phan_tan.sh mat-mang cn1    # CN1 mất mạng: ngắt CSDL S1 + api-cn1 khỏi mạng chung (hq | cn1 | cn2 | cn3)
+./phan_tan.sh trang-thai      # cơ sở nào đang nối mạng
+./phan_tan.sh co-mang cn1     # nối lại (co-mang all) — Logical Replication tự đồng bộ bù
+./phan_tan.sh down            # nối lại mọi cơ sở, dừng 8 container web/api (4 container DB giữ nguyên)
+```
+
+- Mỗi cơ sở có một mạng Docker riêng ("LAN": web, api và CSDL của cơ sở, tên `db-cn1`…); mạng của cụm DB
+  (`csdl_default`) đóng vai "WAN". `mat-mang` chỉ gỡ khỏi WAN nên api của cơ sở vẫn tới CSDL của mình.
+- Luôn dừng bằng `./phan_tan.sh down` (không `docker compose down` trực tiếp): script phải gỡ 4 container DB khỏi LAN
+  và nối lại WAN trước. Chạy song song được với bản một-cho-tất-cả ở :3000.
+- 4 JVM trên 1 máy: mỗi api giới hạn heap 384 MB, cả cụm cần khoảng 2–3 GB RAM cho Docker Desktop.
+- Trong lúc một cơ sở "mất mạng", cổng `localhost:543x` của CSDL đó có thể không vào được (DBeaver báo connection reset,
+  `EntitySchemaTest` tự bỏ qua). Khi nối lại, gắn / gỡ LAN, script khởi động lại container CSDL đó (2–3 giây, dữ liệu giữ
+  nguyên) vì Docker Desktop không tự chuyển cổng sang IP mới của container.
+- Bản chi nhánh chờ tối đa 3 giây (`connectionTimeout` của pool) rồi mới báo lỗi ở các thao tác cần S0.
+- Triển khai thật trên nhiều máy còn cần (chưa làm, thuộc nhóm DB): đổi tên container trong `CSDL/02_*`, `03_setup_subscriber_*`,
+  `06_*` sang hostname/IP, mở `listen_addresses` / `pg_hba.conf`, đặt `max_slot_wal_keep_size` ở S0 (chi nhánh offline lâu làm
+  S0 giữ WAL), `connect_timeout` cho các FDW server, và VPN giữa các cơ sở (mật khẩu FDW / subscription đang ghi rõ).
+
 ## 2. Lệnh thường dùng
 
 | Việc | Lệnh |
@@ -98,8 +139,8 @@ FE ──(header X-Site: S1|S2|S3)──► SiteFilter ──► SiteContext ─
 | Đường dẫn API | Trạm |
 |---|---|
 | `/api/master/**`, `/api/hq/**` | luôn S0 (danh mục chung, báo cáo toàn chuỗi) |
-| `/api/**` khác | chi nhánh trong header `X-Site` (thiếu header → 400 `MISSING_SITE`) |
-| `/api/system/**` | không định tuyến (tự kiểm tra cả 4 trạm) |
+| `/api/**` khác | bản `all`: chi nhánh trong header `X-Site` (thiếu header → 400 `MISSING_SITE`) · bản `branch`: luôn `APP_LOCAL_SITE` · bản `hq`: 404 `NOT_SERVED` (mục 1.2) |
+| `/api/system/**` | không định tuyến (tự kiểm tra các trạm đã khai báo; `/api/system/mode` cho biết bản đang chạy) |
 
 - Danh sách trạm, mã chi nhánh, URL JDBC: `backend/src/main/resources/application.yml` (`app.sites`).
 - Response có header `X-Site-Used` cho biết request đã chạy ở trạm nào.
@@ -113,7 +154,7 @@ FE ──(header X-Site: S1|S2|S3)──► SiteFilter ──► SiteContext ─
 | Màn hình | API |
 |---|---|
 | Tổng quan chi nhánh — lượt hôm nay, đợt đang điều trị, doanh thu tháng, lịch hẹn, đợt quá hạn, bệnh nhiều nhất | `GET /api/tong-quan` |
-| Tiếp đón — tra cứu bệnh nhân toàn chuỗi, chi nhánh đang có hồ sơ | `GET /api/benh-nhan/toan-chuoi?q=` · `GET /api/hq/benh-nhan/chi-nhanh?ma=BN01,BN02` |
+| Tiếp đón — tra cứu bệnh nhân toàn chuỗi, chi nhánh đang có hồ sơ; mất kết nối thì tra cứu trong chi nhánh | `GET /api/benh-nhan/toan-chuoi?q=` · `GET /api/hq/benh-nhan/chi-nhanh?ma=BN01,BN02` · `GET /api/benh-nhan/cuc-bo?q=` |
 | Tạo lượt khám — chẩn đoán mở đợt, y tá, dịch vụ, thuốc, thiết bị | `POST /api/luot-kham` |
 | Tạo lượt chữa — chọn đợt đang mở, "Khỏi" kết thúc đợt; ngừng điều trị | `GET /api/benh-nhan/{maBN}/dot-dang-dieu-tri` · `POST /api/luot-chua` · `PUT /api/dot-dieu-tri/{maCDDT}/ngung` |
 | Danh sách lượt — lọc, xem chi tiết, xoá lượt nhập nhầm | `GET /api/luot?tu=&den=&loai=&khoa=&bs=&q=` · `GET/DELETE /api/luot/{maLuot}` |
@@ -176,7 +217,7 @@ Ghi chú nghiệp vụ:
   - Chỉ xoá được lượt trong tháng hiện tại, để lương và doanh thu các tháng trước không đổi.
   - Lượt chữa: phải là lần chữa cuối của đợt. Nếu chính lần đó kết thúc đợt thì đợt mở lại "Đang điều trị".
   - Lượt khám: các đợt mở từ lượt đó phải chưa có lần chữa. Khoá ngoại CASCADE xoá kèm đợt, y tá, chi phí.
-- **Mã tự sinh** khi để trống: `BS-CN1-02`, `YT-CN1-03`, `TB-CN1-02`, `CN1-K03` (khoa), `B05`, `DV05`, `T05`. Mã bệnh nhân `BN13` là mã **toàn chuỗi** (đọc qua view `TRA_CUU_BENH_NHAN_TOAN_CHUOI`), nên thêm bệnh nhân cần cả 4 trạm đang chạy; một trạm tắt → 503 `CHAIN_UNAVAILABLE`.
+- **Mã tự sinh** khi để trống: `BS-CN1-02`, `YT-CN1-03`, `TB-CN1-02`, `CN1-K03` (khoa), `B05`, `DV05`, `T05`. Mã bệnh nhân mới dạng `BN-CN1-0001` mang mã chi nhánh cấp nó, nên không trùng toàn chuỗi mà vẫn sinh được khi mất kết nối: có mạng thì tính số tiếp theo trên view `TRA_CUU_BENH_NHAN_TOAN_CHUOI`, mất mạng thì trên bảng `BENH_NHAN` của chi nhánh. Mã cũ (`BN01`…, `BN000001` trong bộ CSV) giữ nguyên.
 - **Bệnh nhân đã khám ở chi nhánh khác**: ô "Tra cứu toàn chuỗi" trong hộp thoại thêm mới → "Dùng thông tin này" điền sẵn thông tin và dùng lại đúng mã BN.
 - **Xoá (BR9)**: bác sĩ / y tá / thiết bị đã có lịch sử → chuyển "Ngừng hoạt động" (SOFT), chưa có → xoá hẳn (HARD). Bệnh nhân đã có lượt khám, khoa còn nhân viên hoặc lượt, thuốc / bệnh / dịch vụ đã dùng ở bất kỳ chi nhánh nào (kiểm tra qua view toàn cục ở S0) → từ chối 409 `IN_USE`.
 - **Lương cơ sở** là dữ liệu lịch sử: mức đã có hiệu lực (ngày áp dụng ≤ hôm nay) không sửa / xoá được (409 `HISTORY_LOCKED`); đổi lương = thêm mức mới.

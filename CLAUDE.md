@@ -30,6 +30,8 @@ cd ../frontend && npm run build && cd ../backend && ./mvnw clean package
 # Docker: web (nginx :3000) + api (:8080) from ./docker-compose.yml, joined to the DB cluster's network
 cd scripts && ./docker_app.sh           # detects the DB network, builds, starts, waits for api health; --down / --logs / --ps
 docker compose up -d --build            # same, from this folder (DB_NETWORK=<name> if it isn't csdl_default)
+# Per-site deployment on one machine: 4 web+api pairs (HQ :3100, CN1–CN3 :3101–3103), simulate a site losing its network
+cd scripts && ./phan_tan.sh up          # then: mat-mang cn1 / co-mang cn1 / trang-thai / down (always stop with down)
 ```
 
 Backend tests don't need a running DB, because Hikari pools connect lazily. The frontend has no test suite.
@@ -43,6 +45,16 @@ DB connections use user `admin` / `password123`: S0 is `localhost:5430/ql_phongk
 - The frontend image (nginx) is described in `../frontend/CLAUDE.md`. A new backend path prefix besides `/api`, `/v3` and `/swagger-ui` must be added to both the nginx `location` regex and the vite proxy there.
 - In Docker, a stopped DB container's name stops resolving (`UnknownHostException`), and `@Transactional` methods then fail with `CannotCreateTransactionException`. `GlobalExceptionHandler` maps that to 503 `SITE_UNAVAILABLE`.
 
+## Deployment modes (`app.mode`, env `APP_MODE`)
+
+One source, three deployments, chosen on the **backend** only. The frontend reads `GET /api/system/mode` at startup and renders the matching UI.
+
+- `all` (default): one app for every site, the FE picks the branch with `X-Site`. Everything below assumes this unless it says otherwise.
+- `branch` + `APP_LOCAL_SITE=S1`: the app installed at one branch. `AppProperties` keeps only the hub and the local site (other entries in `app.sites` are dropped), branch data always goes to the local site, and an `X-Site` naming another branch gets 400 `WRONG_SITE`. `/api/master/**` and `/api/hq/**` still go to S0 when it is reachable (the assignment requires drug CRUD and full patient history at every branch); offline they fail with 503 like any S0 outage.
+- `hq`: the head-office app. Only `/api/master/**`, `/api/hq/**` and `/api/system/**`; other `/api/**` paths get 404 `NOT_SERVED`. It still declares S1–S3, but only for the status checks (`SiteHealthService`, `ToanChuoiService` naming the site that is down).
+- Per-site URL overrides work as env vars (`APP_SITES_S1_URL=…`); `docker-compose.phan-tan.yml` uses them to reach each site's DB over its own "LAN" network (`db-cn1`…). `scripts/phan_tan.sh` attaches the DB containers to those networks, which compose can't do because the DB team's compose owns them.
+- Anything a branch must keep doing offline has to avoid S0: new patient codes are branch-prefixed, and reception falls back to `GET /api/benh-nhan/cuc-bo`.
+
 ## Architecture: how a request picks its database site
 
 ```
@@ -52,7 +64,7 @@ FE (header X-Site: S1|S2|S3) → SiteFilter → SiteContext (ThreadLocal) → Si
 - `site/SiteFilter` routes by path **before** any controller or `@Transactional` code runs:
   - `/api/master/**` (shared catalogs) and `/api/hq/**` (chain-wide reports) always go to the hub S0.
   - `/api/system/**` is not routed. `SystemController` uses `SiteRoutingDataSource.pools()` directly to check every site.
-  - Any other `/api/**` path needs a valid branch in `X-Site`; otherwise the filter returns 400 `MISSING_SITE`. Every response carries `X-Site-Used`.
+  - Any other `/api/**` path needs a valid branch in `X-Site`; otherwise the filter returns 400 `MISSING_SITE` (mode `all`; see "Deployment modes" for `branch` / `hq`). Every response carries `X-Site-Used`.
 - `SiteRoutingDataSource` has **no default site**: if no site is set, it throws instead of writing to the wrong DB. One pool per site is built from `app.sites` in `application.yml` (`config/AppProperties`; site keys are upper-cased; `ma-cn` must match `CHI_NHANH.MaCN`).
 - **Each transaction touches exactly one site** (there is no 2PC). Use `SiteContext.callOn(site, ...)` only *outside* a transaction, because the connection is bound when the transaction starts.
 - When a site is down, the app still starts (`initializationFailTimeout = -1`). Connection failures surface as SQLSTATE `08xxx` and map to 503 `SITE_UNAVAILABLE`.
@@ -77,6 +89,7 @@ The full rules are in `.claude/skills/conventions/SKILL.md`. Follow that file wh
   - Put `@Transactional` on write methods and `readOnly = true` on reads.
   - Reads that must survive a site being down (FDW fallbacks) use `Propagation.NOT_SUPPORTED`.
   - Never put `@Transactional` at class level.
+  - A method that catches an FDW error and then runs **another** query (a local fallback, e.g. `BenhNhanService.create`) must have no `@Transactional` at all. An FDW connection failure comes back as SQLSTATE `08001`, Hikari treats that as a dead connection and closes it, and under `NOT_SUPPORTED` the method keeps that same connection, so the fallback fails with "Connection is closed".
   - **A method that reads another site with `SiteContext.callOn(...)` must have no `@Transactional` at all, not even `NOT_SUPPORTED`.** While transaction synchronization is active, Spring keeps the first connection for the whole method, so a `callOn("S0", …)` would still run on the branch. Do the cross-site reads first, then write inside a `TransactionTemplate` (see `LuotKhamService`, which also retries the transaction when a freshly generated code collides).
 - `config/DataSourceConfig` runs `SET jit = off` on every pooled connection. Foreign tables have no statistics, so the planner turns on JIT for every chain-wide query, which adds about 1.5 s of LLVM compile time to a few-ms query. The DB configuration itself is untouched.
 - Chain-wide reports (`/api/hq/**`, `ToanChuoiService`) reuse the branch services (`HoSoBenhNhanService`, `DoanhThuService`, `ThongKeBenhService`): at S0 the global views have the same names as the branch tables. Visit and episode codes contain the branch code, so they are unique chain-wide. Avoid per-row correlated subqueries in SQL that also runs at S0; aggregate in a CTE with `GROUP BY` so each FDW table is scanned once. When an FDW query fails, `ToanChuoiService` checks every site and returns 503 `CHAIN_UNAVAILABLE` naming the site that is down.
@@ -93,13 +106,13 @@ The full rules are in `.claude/skills/conventions/SKILL.md`. Follow that file wh
 - Helpers in `util/Codes`:
   - `blankToNull`: normalize optional strings with it.
   - `next(prefix, existing, width)`: auto-generates IDs such as `BS-CN1-02`, `YT-CN1-03`, `TB-CN1-02`, `CN1-K03`, `B05`, `DV05` and `T05`.
-  - Patient IDs (`BN13`) are unique across the chain. They are generated from `TRA_CUU_BENH_NHAN_TOAN_CHUOI`, so creating a patient needs every site up.
+  - New patient IDs are `BN-{MaCN}-NNNN` (`BN-CN1-0001`): only that branch issues its prefix, so they are unique chain-wide and can be generated offline. The next number comes from `TRA_CUU_BENH_NHAN_TOAN_CHUOI` when it is reachable (it also sees codes copied to other branches and later deleted here) and from the local `BENH_NHAN` otherwise. Older codes (`BN01`, `BN000001` in the CSV set) stay as they are.
 - Deletes return `DeleteResponse` HARD or SOFT (BR9). A doctor, nurse or device with history gets its status set to "Ngừng hoạt động". Patients with visits, departments with staff or visits, and catalog rows used at any branch are refused with 409 `IN_USE` (usage is checked through the S0 global views; if a branch is down, the delete is refused).
 - Status strings are constants on the entities: `ChanDoanDieuTri.DANG_DIEU_TRI` / `DA_KHOI` / `NGUNG_DIEU_TRI`, `ThietBi.HOAT_DONG_TOT` / `NGUNG_HOAT_DONG` and `DichVu.LOAI_KHAM_BENH`.
 - `LUONG_CO_SO` is history. Levels with `NgayApDung` ≤ today can't be edited or deleted. F3 salary is computed live from visit data in `LuongRepository`. **No salary table exists, so salaries can't be locked ("chốt lương").** Bonuses are 1,000,000 ₫ per "Đã khỏi" episode ending in the month (credited to the doctor of the opening visit) and 200,000 ₫ per `HO_TRO` row in the month.
 - Tests:
   - Service tests use Mockito; controller tests use `@WebMvcTest` + `@EnableConfigurationProperties(AppProperties.class)` + `@MockitoBean`. Test names follow `method_condition_expected`.
-  - 159 tests, no DB needed. Service tests that use `TransactionTemplate` take the mock transaction manager from `LuotFixtures.txManager()`. `EntitySchemaTest` skips itself when the cluster is down.
+  - 179 tests, no DB needed. Service tests that use `TransactionTemplate` take the mock transaction manager from `LuotFixtures.txManager()`. `EntitySchemaTest` skips itself when the cluster is down.
   - Run with `-Duser.timezone=Asia/Ho_Chi_Minh` if the JVM default zone is `Asia/Saigon`, which PostgreSQL rejects.
 - `config/WebConfig` serves the built SPA from `classpath:/static/` with an `index.html` fallback for client routes.
 

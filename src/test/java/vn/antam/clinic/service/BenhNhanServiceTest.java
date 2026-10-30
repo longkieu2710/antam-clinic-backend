@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.Optional;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +27,7 @@ import vn.antam.clinic.dto.response.DeleteResponse;
 import vn.antam.clinic.entity.BenhNhan;
 import vn.antam.clinic.exception.BusinessException;
 import vn.antam.clinic.repository.BenhNhanRepository;
+import vn.antam.clinic.site.SiteContext;
 
 @ExtendWith(MockitoExtension.class)
 class BenhNhanServiceTest {
@@ -37,17 +39,23 @@ class BenhNhanServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new BenhNhanService(repo);
+        SiteContext.set("S1");
+        service = new BenhNhanService(repo, LuotFixtures.props());
+    }
+
+    @AfterEach
+    void tearDown() {
+        SiteContext.clear();
     }
 
     @Test
-    void create_blankMaBN_generatesCodeUniqueAcrossChain() {
-        when(repo.findAllMaBNToanChuoi()).thenReturn(List.of("BN01", "BN02", "BN07"));
-        when(repo.findById("BN08")).thenReturn(Optional.of(response("BN08", 0)));
+    void create_blankMaBN_generatesBranchPrefixedCodeFromChain() {
+        when(repo.findAllMaBNToanChuoi()).thenReturn(List.of("BN01", "BN07", "BN-CN1-0002", "BN-CN2-0009"));
+        when(repo.findById("BN-CN1-0003")).thenReturn(Optional.of(response("BN-CN1-0003", 0)));
 
         BenhNhanResponse created = service.create(request(" "));
 
-        assertThat(created.maBN()).isEqualTo("BN08");
+        assertThat(created.maBN()).isEqualTo("BN-CN1-0003");
         ArgumentCaptor<BenhNhan> bn = ArgumentCaptor.forClass(BenhNhan.class);
         verify(repo).insert(bn.capture());
         assertThat(bn.getValue().hoTen()).isEqualTo("Nguyễn Văn C");
@@ -55,16 +63,15 @@ class BenhNhanServiceTest {
     }
 
     @Test
-    void create_chainUnreachable_throws503WithoutInserting() {
+    void create_chainUnreachable_generatesCodeFromLocalTable() {
         when(repo.findAllMaBNToanChuoi()).thenThrow(new DataAccessResourceFailureException("fdw down"));
+        when(repo.findAllMaBN()).thenReturn(List.of("BN02", "BN-CN1-0004"));
+        when(repo.findById("BN-CN1-0005")).thenReturn(Optional.of(response("BN-CN1-0005", 0)));
 
-        assertThatThrownBy(() -> service.create(request(null)))
-                .isInstanceOf(BusinessException.class)
-                .satisfies(e -> {
-                    assertThat(((BusinessException) e).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-                    assertThat(((BusinessException) e).getCode()).isEqualTo("CHAIN_UNAVAILABLE");
-                });
-        verify(repo, never()).insert(any());
+        BenhNhanResponse created = service.create(request(null));
+
+        assertThat(created.maBN()).isEqualTo("BN-CN1-0005");
+        verify(repo).insert(any());
     }
 
     @Test
@@ -111,6 +118,20 @@ class BenhNhanServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getStatus())
                 .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    void searchCucBo_blankQuery_returnsEmptyWithoutQuerying() {
+        assertThat(service.searchCucBo(" ")).isEmpty();
+        verifyNoInteractions(repo);
+    }
+
+    @Test
+    void searchCucBo_query_searchesBranchTableOnly() {
+        when(repo.searchCucBo("0912345678")).thenReturn(List.of());
+
+        assertThat(service.searchCucBo("0912345678")).isEmpty();
+        verify(repo, never()).searchToanChuoi(anyString());
     }
 
     private static BenhNhanRequest request(String maBN) {

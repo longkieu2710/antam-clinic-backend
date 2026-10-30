@@ -42,6 +42,12 @@ public class BenhNhanController {
         return service.searchToanChuoi(q);
     }
 
+    /** Tra cứu như /toan-chuoi nhưng chỉ trong chi nhánh — tiếp đón dùng khi mất kết nối toàn chuỗi. */
+    @GetMapping("/cuc-bo")
+    public List<BenhNhanToanChuoiResponse> searchCucBo(@RequestParam(required = false) String q) {
+        return service.searchCucBo(q);
+    }
+
     @GetMapping("/{maBN}")
     public BenhNhanResponse get(@PathVariable String maBN) {
         return service.get(maBN);

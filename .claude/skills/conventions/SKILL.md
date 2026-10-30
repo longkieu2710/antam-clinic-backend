@@ -24,6 +24,9 @@ thì theo file này**.
   sửa bảng — không Flyway, không `ddl-auto`.
 - Chọn trạm theo request: `SiteFilter` đặt `SiteContext` → `SiteRoutingDataSource` chọn pool.
   `/api/master/**`, `/api/hq/**` → S0; `/api/system/**` không định tuyến; `/api/**` còn lại → header `X-Site` (S1..S3).
+- Bản triển khai `app.mode` (`APP_MODE`): `all` như trên · `branch` (`APP_LOCAL_SITE`) luôn dùng trạm cục bộ, chỉ mở pool
+  S0 + trạm đó · `hq` chỉ phục vụ `/api/master/**`, `/api/hq/**`. Chức năng chi nhánh phải chạy được khi mất S0 thì không
+  được phụ thuộc S0 (mẫu: `BenhNhanService.nextMaBN`, `GET /api/benh-nhan/cuc-bo`).
 
 ## Quy tắc bắt buộc
 
@@ -104,6 +107,9 @@ jdbc.sql("INSERT INTO thuoc (...) VALUES (:maThuoc, :tenThuoc, :hoatChat, :donVi
 - Phương thức "đọc chấp nhận lỗi" (vẫn trả dữ liệu dự phòng khi một trạm tắt — `ChiNhanhService.list`,
   `ThuocService.listMaster`) phải là `@Transactional(propagation = Propagation.NOT_SUPPORTED)`:
   nếu có transaction, S0 tắt sẽ lỗi trước khi vào `try`, và query FDW lỗi làm PostgreSQL huỷ cả transaction.
+- Phương thức bắt lỗi FDW rồi **chạy tiếp câu SQL khác** (vd đọc dự phòng ở bảng cục bộ — `BenhNhanService.create`) thì
+  KHÔNG gắn `@Transactional` nào: lỗi kết nối FDW có SQLSTATE `08001`, Hikari coi là kết nối hỏng và đóng nó; với
+  `NOT_SUPPORTED` cả phương thức vẫn giữ kết nối đó nên câu sau lỗi "Connection is closed".
 - Phương thức đọc **trạm khác** bằng `SiteContext.callOn(...)` (vd kiểm tra toàn chuỗi ở S0 rồi ghi ở chi nhánh) thì
   KHÔNG gắn `@Transactional` nào, kể cả `NOT_SUPPORTED`: khi có đồng bộ transaction, Spring giữ kết nối đầu tiên cho cả
   phương thức nên `callOn` vẫn chạy trên trạm cũ. Đọc liên trạm trước, rồi ghi trong `TransactionTemplate`

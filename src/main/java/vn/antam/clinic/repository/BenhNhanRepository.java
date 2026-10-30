@@ -30,6 +30,18 @@ public class BenhNhanRepository {
 
     private final JdbcClient jdbc;
 
+    /** Tra cứu tiếp đón; %s = view toàn chuỗi hoặc bảng BENH_NHAN của chi nhánh. */
+    private static final String TRA_CUU = """
+            SELECT t.mabn, t.hoten, t.ngaysinh, t.gioitinh, t.cccd, t.sodienthoai, t.sothebhyt, t.diachi,
+                   EXISTS (SELECT 1 FROM benh_nhan b WHERE b.mabn = t.mabn) AS cotaichinhanh,
+                   (SELECT count(*) FROM chan_doan_dieu_tri cd JOIN lan_kham lk ON lk.maluot = cd.maluotkham
+                     WHERE lk.mabn = t.mabn AND cd.trangthai = :dangDieuTri) AS sodotdangdieutri
+            FROM %s t
+            WHERE t.cccd = :q OR t.sothebhyt = :q OR t.sodienthoai = :q OR t.mabn = :q
+               OR t.hoten ILIKE :like
+            ORDER BY t.mabn
+            LIMIT 20""";
+
     public BenhNhanRepository(JdbcClient jdbc) {
         this.jdbc = jdbc;
     }
@@ -99,21 +111,26 @@ public class BenhNhanRepository {
         return jdbc.sql("SELECT mabn FROM tra_cuu_benh_nhan_toan_chuoi").query(String.class).list();
     }
 
+    /** Mã bệnh nhân có hồ sơ ở chi nhánh — sinh mã mới khi không đọc được toàn chuỗi. */
+    public List<String> findAllMaBN() {
+        return jdbc.sql("SELECT mabn FROM benh_nhan").query(String.class).list();
+    }
+
     /**
      * Tra cứu toàn chuỗi khi tiếp đón: khớp đúng CCCD / thẻ BHYT / số điện thoại / mã, hoặc một phần họ tên.
      * Lỗi nếu S0 hoặc một chi nhánh đang tắt.
      */
     public List<BenhNhanToanChuoiResponse> searchToanChuoi(String q) {
-        return jdbc.sql("""
-                        SELECT t.mabn, t.hoten, t.ngaysinh, t.gioitinh, t.cccd, t.sodienthoai, t.sothebhyt, t.diachi,
-                               EXISTS (SELECT 1 FROM benh_nhan b WHERE b.mabn = t.mabn) AS cotaichinhanh,
-                               (SELECT count(*) FROM chan_doan_dieu_tri cd JOIN lan_kham lk ON lk.maluot = cd.maluotkham
-                                 WHERE lk.mabn = t.mabn AND cd.trangthai = :dangDieuTri) AS sodotdangdieutri
-                        FROM tra_cuu_benh_nhan_toan_chuoi t
-                        WHERE t.cccd = :q OR t.sothebhyt = :q OR t.sodienthoai = :q OR t.mabn = :q
-                           OR t.hoten ILIKE :like
-                        ORDER BY t.mabn
-                        LIMIT 20""")
+        return traCuu("tra_cuu_benh_nhan_toan_chuoi", q);
+    }
+
+    /** Tra cứu như {@link #searchToanChuoi} nhưng chỉ trong BENH_NHAN của chi nhánh — không cần S0. */
+    public List<BenhNhanToanChuoiResponse> searchCucBo(String q) {
+        return traCuu("benh_nhan", q);
+    }
+
+    private List<BenhNhanToanChuoiResponse> traCuu(String from, String q) {
+        return jdbc.sql(TRA_CUU.formatted(from))
                 .param("q", q.trim())
                 .param("like", "%" + q.trim() + "%")
                 .param("dangDieuTri", ChanDoanDieuTri.DANG_DIEU_TRI)

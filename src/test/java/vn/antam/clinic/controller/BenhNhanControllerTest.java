@@ -34,6 +34,17 @@ class BenhNhanControllerTest {
     BenhNhanService service;
 
     @Test
+    void searchCucBo_withQuery_returnsBranchMatches() throws Exception {
+        when(service.searchCucBo("0912345678")).thenReturn(List.of(new BenhNhanToanChuoiResponse("BN-CN1-0001",
+                "Nguyễn Văn C", null, "Nam", null, "0912345678", null, null, true, 0)));
+
+        mvc.perform(get("/api/benh-nhan/cuc-bo").header("X-Site", "S1").param("q", "0912345678"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].maBN").value("BN-CN1-0001"))
+                .andExpect(jsonPath("$[0].coTaiChiNhanh").value(true));
+    }
+
+    @Test
     void create_invalidBloodTypeAndCccd_returns400() throws Exception {
         mvc.perform(post("/api/benh-nhan").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
                         .content("""

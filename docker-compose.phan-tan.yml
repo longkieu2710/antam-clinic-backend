@@ -1,0 +1,113 @@
+# =============================================================================
+# Mô phỏng triển khai theo cơ sở trên 1 máy: mỗi cơ sở một cặp web + api chạy cùng một source,
+# khác nhau ở biến môi trường APP_MODE / APP_LOCAL_SITE (xem application.yml).
+#
+#   Trung tâm   web-hq  :3100 → api-hq  (APP_MODE=hq)                     → S0
+#   Cầu Giấy    web-cn1 :3101 → api-cn1 (APP_MODE=branch, APP_LOCAL_SITE=S1) → S1 (S0 khi có mạng)
+#   Đống Đa     web-cn2 :3102 → api-cn2 (APP_MODE=branch, APP_LOCAL_SITE=S2) → S2
+#   Ba Đình     web-cn3 :3103 → api-cn3 (APP_MODE=branch, APP_LOCAL_SITE=S3) → S3
+#
+# Mạng: mỗi cơ sở có một mạng "LAN" riêng (web, api và container CSDL của cơ sở, tên db-hq / db-cn1...),
+# còn mạng của cụm CSDL (csdl_default) đóng vai "WAN" nối các cơ sở. Ngắt một cơ sở khỏi WAN = mất mạng:
+# api vẫn tới CSDL của cơ sở qua LAN. File này KHÔNG tạo CSDL và không gắn được container CSDL vào LAN —
+# luôn chạy bằng script:  ./scripts/phan_tan.sh up | mat-mang cn1 | co-mang cn1 | down
+#
+# Biến môi trường: HQ_PORT, CN1_PORT, CN2_PORT, CN3_PORT (mặc định 3100..3103), DB_NETWORK (mặc định csdl_default).
+# Chạy song song được với docker-compose.yml (bản một-cho-tất-cả ở :3000).
+# =============================================================================
+name: antam-phan-tan
+
+x-api: &api
+  build: .
+  image: antam-clinic-backend:latest
+  restart: unless-stopped
+
+x-web: &web
+  build: ../frontend
+  image: antam-clinic-frontend:latest
+  restart: unless-stopped
+
+# 4 JVM trên 1 máy: giới hạn heap để vừa RAM của Docker Desktop
+x-java: &java "-Duser.timezone=Asia/Ho_Chi_Minh -Xmx384m"
+
+services:
+  api-hq:
+    <<: *api
+    container_name: antam_hq_api
+    environment:
+      APP_MODE: hq
+      APP_SITES_S0_URL: jdbc:postgresql://db-hq:5432/ql_phongkham_hub
+      JAVA_TOOL_OPTIONS: *java
+    networks: [lan_hq, wan]
+
+  web-hq:
+    <<: *web
+    container_name: antam_hq_web
+    environment:
+      API_UPSTREAM: http://api-hq:8080
+    ports: ["${HQ_PORT:-3100}:80"]
+    networks: [lan_hq]
+
+  api-cn1:
+    <<: *api
+    container_name: antam_cn1_api
+    environment:
+      APP_MODE: branch
+      APP_LOCAL_SITE: S1
+      APP_SITES_S1_URL: jdbc:postgresql://db-cn1:5432/ql_phongkham_cn1
+      JAVA_TOOL_OPTIONS: *java
+    networks: [lan_cn1, wan]
+
+  web-cn1:
+    <<: *web
+    container_name: antam_cn1_web
+    environment:
+      API_UPSTREAM: http://api-cn1:8080
+    ports: ["${CN1_PORT:-3101}:80"]
+    networks: [lan_cn1]
+
+  api-cn2:
+    <<: *api
+    container_name: antam_cn2_api
+    environment:
+      APP_MODE: branch
+      APP_LOCAL_SITE: S2
+      APP_SITES_S2_URL: jdbc:postgresql://db-cn2:5432/ql_phongkham_cn2
+      JAVA_TOOL_OPTIONS: *java
+    networks: [lan_cn2, wan]
+
+  web-cn2:
+    <<: *web
+    container_name: antam_cn2_web
+    environment:
+      API_UPSTREAM: http://api-cn2:8080
+    ports: ["${CN2_PORT:-3102}:80"]
+    networks: [lan_cn2]
+
+  api-cn3:
+    <<: *api
+    container_name: antam_cn3_api
+    environment:
+      APP_MODE: branch
+      APP_LOCAL_SITE: S3
+      APP_SITES_S3_URL: jdbc:postgresql://db-cn3:5432/ql_phongkham_cn3
+      JAVA_TOOL_OPTIONS: *java
+    networks: [lan_cn3, wan]
+
+  web-cn3:
+    <<: *web
+    container_name: antam_cn3_web
+    environment:
+      API_UPSTREAM: http://api-cn3:8080
+    ports: ["${CN3_PORT:-3103}:80"]
+    networks: [lan_cn3]
+
+networks:
+  lan_hq: {}
+  lan_cn1: {}
+  lan_cn2: {}
+  lan_cn3: {}
+  # mạng có sẵn của cụm CSDL — đóng vai đường truyền giữa các cơ sở
+  wan:
+    external: true
+    name: ${DB_NETWORK:-csdl_default}

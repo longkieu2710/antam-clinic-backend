@@ -13,6 +13,13 @@ spring:
       mode: never   # schema do nhóm DB quản lý bằng script trong CSDL/, ứng dụng không tự tạo bảng
 
 app:
+  # Bản triển khai (cùng một source):
+  #   all    — một bản cho mọi trạm, FE chọn chi nhánh bằng X-Site (mặc định)
+  #   branch — bản đặt tại một cơ sở: dữ liệu chi nhánh luôn ở local-site, chạy được khi mất kết nối Trung tâm
+  #   hq     — bản Trung tâm: chỉ danh mục chung (/api/master/**) và báo cáo toàn chuỗi (/api/hq/**)
+  # Đặt bằng biến môi trường: APP_MODE=branch APP_LOCAL_SITE=S1
+  mode: all
+  local-site:
   hub-site: S0          # trạm trung tâm: /api/master/** và /api/hq/** luôn đi trạm này
   db:
     username: admin
