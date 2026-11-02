@@ -21,9 +21,9 @@ import vn.antam.clinic.dto.request.ChanDoanRequest;
 import vn.antam.clinic.dto.request.LuotKhamRequest;
 import vn.antam.clinic.dto.response.BacSiResponse;
 import vn.antam.clinic.dto.response.DotDieuTriResponse;
+import vn.antam.clinic.dto.response.MaToanChuoiResponse;
 import vn.antam.clinic.dto.response.TaoLuotResponse;
 import vn.antam.clinic.entity.Benh;
-import vn.antam.clinic.entity.BenhNhan;
 import vn.antam.clinic.entity.ChanDoanDieuTri;
 import vn.antam.clinic.entity.LanKham;
 import vn.antam.clinic.entity.LuotKhamChua;
@@ -42,10 +42,10 @@ import vn.antam.clinic.util.Codes;
 /**
  * Tạo lượt khám tại chi nhánh đang chọn.
  * <p>
- * Hai bước đọc qua postgres_fdw chạy TRƯỚC transaction (lỗi FDW làm PostgreSQL huỷ cả transaction đang mở):
- * lấy hồ sơ bệnh nhân từ S0 nếu chi nhánh chưa có, và kiểm tra BR4 trên toàn chuỗi. Phần ghi chạy trong một
- * transaction tại chi nhánh: (bản sao BENH_NHAN) → LUOT_KHAM_CHUA → LAN_KHAM → CHAN_DOAN_DIEU_TRI → HO_TRO →
- * SU_DUNG_DV → KE_DON → SU_DUNG_TB.
+ * Bệnh nhân phải có hồ sơ tại chi nhánh (lập ở màn Tiếp đón / Bệnh nhân) — chi nhánh không chép hồ sơ của chi nhánh
+ * khác. BR4 trên toàn chuỗi hỏi hàm benh_dang_dieu_tri_noi_khac ở S0 (chỉ trả mã bệnh) TRƯỚC transaction. Phần ghi chạy
+ * trong một transaction tại chi nhánh: LUOT_KHAM_CHUA → LAN_KHAM → CHAN_DOAN_DIEU_TRI → HO_TRO → SU_DUNG_DV → KE_DON →
+ * SU_DUNG_TB.
  */
 @Service
 public class LuotKhamService {
@@ -104,21 +104,26 @@ public class LuotKhamService {
             }
         }
 
-        // --- Đọc qua FDW, ngoài transaction ---
-        BenhNhan banSao = benhNhanRepo.exists(r.maBN()) ? null : layHoSoToanChuoi(r.maBN());
+        if (!benhNhanRepo.exists(r.maBN())) {
+            throw ChiTietLuotService.rule("NO_LOCAL_RECORD", "Bệnh nhân " + r.maBN() + " chưa có hồ sơ tại chi nhánh này. "
+                    + "Lập hồ sơ ở màn Tiếp đón (nhập số CCCD / thẻ BHYT để dùng lại mã cũ) rồi tạo lượt.");
+        }
+
+        // --- BR4 trên toàn chuỗi: hỏi S0, ngoài transaction ---
         List<String> canhBao = new ArrayList<>();
-        List<DotDieuTriResponse> dotMoNoiKhac = chanDoan.isEmpty() ? List.of() : dotDangMoChiNhanhKhac(r.maBN(), site, canhBao);
-        for (DotDieuTriResponse d : dotMoNoiKhac) {
-            if (benh.contains(d.maBenh())) {
-                throw ChiTietLuotService.rule("BR4", "Bệnh nhân đang có đợt \"" + d.tenBenh() + "\" (" + d.maCDDT()
-                        + ") chưa kết thúc tại chi nhánh " + d.maCn() + " — không mở đợt mới cùng bệnh (BR4).");
-            }
+        List<String> dangDieuTriNoiKhac = benhDangDieuTriNoiKhac(r.maBN(), benh, site, canhBao);
+        if (!dangDieuTriNoiKhac.isEmpty()) {
+            String maBenh = dangDieuTriNoiKhac.getFirst();
+            String tenBenh = benhRepo.search(null).stream().filter(b -> b.maBenh().equals(maBenh))
+                    .map(Benh::tenBenh).findFirst().orElse(maBenh);
+            throw ChiTietLuotService.rule("BR4", "Bệnh nhân đang có đợt điều trị \"" + tenBenh
+                    + "\" chưa kết thúc ở chi nhánh khác — không mở đợt mới cùng bệnh (BR4).");
         }
 
         // --- Ghi trong một transaction tại chi nhánh; trùng mã vừa sinh (lưu đồng thời) thì sinh lại ---
         for (int lan = 1; ; lan++) {
             try {
-                return tx.execute(status -> ghi(r, thoiGian, chanDoan, banSao, site, canhBao));
+                return tx.execute(status -> ghi(r, thoiGian, chanDoan, site, canhBao));
             } catch (DuplicateKeyException e) {
                 if (lan >= SO_LAN_THU) {
                     throw e;
@@ -128,7 +133,7 @@ public class LuotKhamService {
     }
 
     private TaoLuotResponse ghi(LuotKhamRequest r, LocalDateTime thoiGian, List<ChanDoanRequest> chanDoan,
-                                BenhNhan banSao, String site, List<String> canhBao) {
+                                String site, List<String> canhBao) {
         // BR6: khoa và bác sĩ phải của chi nhánh này (đọc bảng cục bộ); bác sĩ đang làm việc, đúng khoa
         khoaRepo.findById(r.maKhoa()).orElseThrow(() -> ChiTietLuotService.rule("BR6",
                 "Khoa '" + r.maKhoa() + "' không thuộc chi nhánh này (BR6)."));
@@ -155,12 +160,10 @@ public class LuotKhamService {
             if (ketLuan == null) {
                 ketLuan = chanDoan.stream().map(c -> catalog.get(c.maBenh()).tenBenh()).collect(Collectors.joining("; "));
             }
-            if (banSao == null) {
-                for (DotDieuTriResponse d : dotRepo.findDangDieuTri(r.maBN())) {
-                    if (chanDoan.stream().anyMatch(c -> c.maBenh().equals(d.maBenh()))) {
-                        throw ChiTietLuotService.rule("BR4", "Bệnh nhân đang có đợt \"" + d.tenBenh() + "\" (" + d.maCDDT()
-                                + ") chưa kết thúc — tạo lượt chữa cho đợt đó thay vì mở đợt mới (BR4).");
-                    }
+            for (DotDieuTriResponse d : dotRepo.findDangDieuTri(r.maBN())) {
+                if (chanDoan.stream().anyMatch(c -> c.maBenh().equals(d.maBenh()))) {
+                    throw ChiTietLuotService.rule("BR4", "Bệnh nhân đang có đợt \"" + d.tenBenh() + "\" (" + d.maCDDT()
+                            + ") chưa kết thúc — tạo lượt chữa cho đợt đó thay vì mở đợt mới (BR4).");
                 }
             }
         }
@@ -170,11 +173,6 @@ public class LuotKhamService {
         String prefix = Codes.luotPrefix("K", r.maKhoa(), r.maBS(), thoiGian);
         String maLuot = Codes.next(prefix, luotRepo.findMaLuotByPrefix(prefix), 3);
 
-        boolean daChep = false;
-        if (banSao != null && !benhNhanRepo.exists(banSao.maBN())) {
-            benhNhanRepo.insert(banSao);
-            daChep = true;
-        }
         luotRepo.insert(new LuotKhamChua(maLuot, thoiGian, LuotKhamChua.LOAI_KHAM, r.ngayHenTaiKham(),
                 Codes.blankToNull(r.ghiChu()), r.maKhoa(), r.maBS()));
         luotRepo.insert(new LanKham(maLuot, r.maBN(), Codes.blankToNull(r.lyDoKham()), Codes.blankToNull(r.trieuChung()),
@@ -196,38 +194,33 @@ public class LuotKhamService {
         ChiTietLuotService.ChiTiet rows = chiTiet.withMaLuot(maLuot);
         chiTietService.ghi(rows);
 
-        String tenBN = banSao != null ? banSao.hoTen()
-                : benhNhanRepo.findById(r.maBN()).map(b -> b.hoTen()).orElse(null);
-        return new TaoLuotResponse(maLuot, LuotKhamChua.LOAI_KHAM, r.maBN(), tenBN, maDot, null, false, daChep,
+        String tenBN = benhNhanRepo.findById(r.maBN()).map(b -> b.hoTen()).orElse(null);
+        return new TaoLuotResponse(maLuot, LuotKhamChua.LOAI_KHAM, r.maBN(), tenBN, maDot, null, false,
                 rows.tongTien(), List.copyOf(canhBao));
     }
 
-    /** Bệnh nhân chưa có hồ sơ ở chi nhánh: lấy bản ghi từ view BENH_NHAN toàn cục ở S0 để chép sang (giữ mã). */
-    private BenhNhan layHoSoToanChuoi(String maBN) {
-        try {
-            return SiteContext.callOn(props.hubSite(), () -> toanChuoiRepo.findBenhNhan(maBN))
-                    .orElseThrow(() -> BusinessException.notFound("bệnh nhân (trên toàn chuỗi)", maBN));
-        } catch (DataAccessException e) {
-            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "CHAIN_UNAVAILABLE",
-                    "Bệnh nhân " + maBN + " chưa có hồ sơ ở chi nhánh này và không đọc được hồ sơ toàn chuỗi "
-                            + "(trạm S0 hoặc một chi nhánh đang tắt). Thêm hồ sơ ở màn Bệnh nhân rồi tạo lượt lại.");
-        }
-    }
-
     /**
-     * BR4 trên toàn chuỗi: các đợt "Đang điều trị" của bệnh nhân ở chi nhánh khác (view toàn cục ở S0).
-     * S0 / chi nhánh khác tắt thì chỉ cảnh báo — chi nhánh vẫn làm việc được, BR4 cục bộ vẫn được kiểm tra.
+     * BR4 trên toàn chuỗi: trong các bệnh vừa chẩn đoán, bệnh nào bệnh nhân đang điều trị dở ở chi nhánh khác (hàm
+     * benh_dang_dieu_tri_noi_khac ở S0 — chỉ trả mã bệnh, không lộ chi nhánh hay hồ sơ). S0 hoặc một chi nhánh tắt thì
+     * chỉ cảnh báo — chi nhánh vẫn làm việc được, BR4 cục bộ vẫn được kiểm tra.
      */
-    private List<DotDieuTriResponse> dotDangMoChiNhanhKhac(String maBN, String site, List<String> canhBao) {
-        String maCn = props.site(site).map(AppProperties.Site::maCn).orElse(site);
-        try {
-            return SiteContext.callOn(props.hubSite(), () -> dotRepo.findDangDieuTri(maBN)).stream()
-                    .filter(d -> !maCn.equals(d.maCn()))
-                    .toList();
-        } catch (DataAccessException e) {
-            canhBao.add("Không kiểm tra được đợt đang điều trị của bệnh nhân ở chi nhánh khác (trạm S0 hoặc một chi nhánh "
-                    + "đang tắt) — BR4 mới được kiểm tra tại chi nhánh này.");
+    private List<String> benhDangDieuTriNoiKhac(String maBN, Set<String> benh, String site, List<String> canhBao) {
+        if (benh.isEmpty()) {
             return List.of();
         }
+        String maCn = props.site(site).map(AppProperties.Site::maCn).orElse(site);
+        List<MaToanChuoiResponse> rows;
+        try {
+            rows = SiteContext.callOn(props.hubSite(),
+                    () -> toanChuoiRepo.benhDangDieuTriNoiKhac(maBN, List.copyOf(benh), maCn));
+        } catch (DataAccessException e) {
+            canhBao.add("Không kiểm tra được đợt đang điều trị của bệnh nhân ở chi nhánh khác (mất kết nối Trung tâm) — "
+                    + "BR4 mới được kiểm tra tại chi nhánh này.");
+            return List.of();
+        }
+        if (rows.stream().anyMatch(x -> !x.ketNoi())) {
+            canhBao.add("Một chi nhánh đang mất kết nối — BR4 chưa kiểm tra được ở chi nhánh đó.");
+        }
+        return rows.stream().filter(MaToanChuoiResponse::ketNoi).map(MaToanChuoiResponse::ma).toList();
     }
 }

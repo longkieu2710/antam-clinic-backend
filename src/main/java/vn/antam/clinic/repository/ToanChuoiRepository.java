@@ -5,20 +5,24 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import vn.antam.clinic.dto.response.BenhNhanTomTatResponse;
+import vn.antam.clinic.dto.response.ChiMucBenhNhanResponse;
 import vn.antam.clinic.dto.response.DoanhThuChiNhanhThangResponse;
+import vn.antam.clinic.dto.response.MaToanChuoiResponse;
 import vn.antam.clinic.dto.response.ThongKeBenhChiNhanhResponse;
-import vn.antam.clinic.entity.BenhNhan;
 import vn.antam.clinic.entity.DichVu;
 
 /**
  * Truy vấn toàn chuỗi — CHỈ chạy ở trạm trung tâm S0 (đường dẫn /api/hq/** hoặc SiteContext.callOn(S0, …)).
  * Đọc các view toàn cục của nhóm CSDL (UNION 3 chi nhánh qua postgres_fdw: cột SiteNguon / MaCN_PhatSinh) và
  * các foreign table s1/s2/s3.*. Một chi nhánh tắt thì câu lệnh lỗi.
+ * <p>
+ * Bản chi nhánh chỉ được gọi 3 hàm tra cứu ({@link #timMaBenhNhan}, {@link #benhDangDieuTriNoiKhac},
+ * {@link #maBenhNhanTheoTienTo}): pool S0 của nó đăng nhập bằng role chi_nhanh_tra_cuu. Các hàm này trả từng chi nhánh
+ * riêng — chi nhánh tắt chỉ cho một dòng ket_noi = false.
  */
 @Repository
 public class ToanChuoiRepository {
@@ -29,14 +33,33 @@ public class ToanChuoiRepository {
         this.jdbc = jdbc;
     }
 
-    /** Hồ sơ đầy đủ của bệnh nhân từ view BENH_NHAN (DISTINCT ON MaBN qua 3 chi nhánh). */
-    public Optional<BenhNhan> findBenhNhan(String maBN) {
-        return jdbc.sql("""
-                        SELECT mabn, hoten, ngaysinh, gioitinh, cccd, sodienthoai, diachi, sothebhyt, nhommau, tiensudiung
-                        FROM benh_nhan WHERE mabn = :maBN""")
+    /**
+     * Hàm tim_ma_benh_nhan (scripts/sql/07_bao_mat_hub.sql): mã bệnh nhân + chi nhánh có hồ sơ khớp ĐÚNG số CCCD / thẻ
+     * BHYT. Gọi được bằng role chi_nhanh_tra_cuu của bản chi nhánh — role này không đọc được bảng / view nào.
+     */
+    public List<ChiMucBenhNhanResponse> timMaBenhNhan(String soDinhDanh) {
+        return jdbc.sql("SELECT mabn, macn, ket_noi FROM tim_ma_benh_nhan(:so)")
+                .param("so", soDinhDanh)
+                .query(ChiMucBenhNhanResponse.class)
+                .list();
+    }
+
+    /** Hàm benh_dang_dieu_tri_noi_khac: trong {@code maBenh}, bệnh nào bệnh nhân đang điều trị dở ở chi nhánh khác {@code truMaCn}. */
+    public List<MaToanChuoiResponse> benhDangDieuTriNoiKhac(String maBN, List<String> maBenh, String truMaCn) {
+        return jdbc.sql("SELECT mabenh AS ma, ket_noi FROM benh_dang_dieu_tri_noi_khac(:maBN, :maBenh::text[], :maCn)")
                 .param("maBN", maBN)
-                .query(BenhNhan.class)
-                .optional();
+                .param("maBenh", maBenh.toArray(String[]::new))
+                .param("maCn", truMaCn)
+                .query(MaToanChuoiResponse.class)
+                .list();
+    }
+
+    /** Hàm ma_benh_nhan_theo_tien_to: các mã bệnh nhân đã cấp với tiền tố (BN-CN1-) trên cả chuỗi. */
+    public List<MaToanChuoiResponse> maBenhNhanTheoTienTo(String tienTo) {
+        return jdbc.sql("SELECT mabn AS ma, ket_noi FROM ma_benh_nhan_theo_tien_to(:tienTo)")
+                .param("tienTo", tienTo)
+                .query(MaToanChuoiResponse.class)
+                .list();
     }
 
     /** Danh sách bệnh nhân toàn chuỗi. @param q tìm theo mã, họ tên, CCCD, số điện thoại; null = tất cả */

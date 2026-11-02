@@ -61,24 +61,57 @@ class SiteFilterTest {
     }
 
     @Test
-    void doFilter_branchModeMasterPath_routesToHub() throws Exception {
-        run(Mode.BRANCH, "S1", "/api/master/thuoc", "S1");
+    void doFilter_branchModeMasterPath_returns403HqOnly() throws Exception {
+        MockHttpServletResponse res = run(Mode.BRANCH, "S1", "GET", "/api/master/thuoc", null);
 
-        assertThat(routedTo.get()).isEqualTo("S0");
-    }
-
-    @Test
-    void doFilter_hqModeBranchPath_returns404NotServed() throws Exception {
-        MockHttpServletResponse res = run(Mode.HQ, null, "/api/bac-si", "S1");
-
-        assertThat(res.getStatus()).isEqualTo(404);
-        assertThat(res.getContentAsString()).contains("NOT_SERVED");
+        assertThat(res.getStatus()).isEqualTo(403);
+        assertThat(res.getContentAsString()).contains("HQ_ONLY");
         assertThat(routedTo.get()).isNull();
     }
 
     @Test
-    void doFilter_hqModeHqPath_routesToHub() throws Exception {
-        run(Mode.HQ, null, "/api/hq/doanh-thu", null);
+    void doFilter_branchModeHqReport_returns403HqOnly() throws Exception {
+        MockHttpServletResponse res = run(Mode.BRANCH, "S1", "GET", "/api/hq/doanh-thu", null);
+
+        assertThat(res.getStatus()).isEqualTo(403);
+        assertThat(routedTo.get()).isNull();
+    }
+
+    @Test
+    void doFilter_hqModeGetBranchPath_routesToHeaderSite() throws Exception {
+        run(Mode.HQ, null, "GET", "/api/bac-si", "S2");
+
+        assertThat(routedTo.get()).isEqualTo("S2");
+    }
+
+    @Test
+    void doFilter_hqModeWriteBranchPath_returns403ReadOnly() throws Exception {
+        MockHttpServletResponse res = run(Mode.HQ, null, "POST", "/api/bac-si", "S1");
+
+        assertThat(res.getStatus()).isEqualTo(403);
+        assertThat(res.getContentAsString()).contains("READ_ONLY");
+        assertThat(routedTo.get()).isNull();
+    }
+
+    @Test
+    void doFilter_hqModeDeleteBranchPath_returns403ReadOnly() throws Exception {
+        MockHttpServletResponse res = run(Mode.HQ, null, "DELETE", "/api/luot/K-1", "S1");
+
+        assertThat(res.getStatus()).isEqualTo(403);
+        assertThat(routedTo.get()).isNull();
+    }
+
+    @Test
+    void doFilter_hqModeGetBranchPathWithoutHeader_returns400MissingSite() throws Exception {
+        MockHttpServletResponse res = run(Mode.HQ, null, "GET", "/api/bac-si", null);
+
+        assertThat(res.getStatus()).isEqualTo(400);
+        assertThat(res.getContentAsString()).contains("MISSING_SITE");
+    }
+
+    @Test
+    void doFilter_hqModeMasterWrite_routesToHub() throws Exception {
+        run(Mode.HQ, null, "POST", "/api/master/thuoc", null);
 
         assertThat(routedTo.get()).isEqualTo("S0");
     }
@@ -92,11 +125,16 @@ class SiteFilterTest {
     }
 
     private MockHttpServletResponse run(Mode mode, String localSite, String path, String header) throws Exception {
+        return run(mode, localSite, "GET", path, header);
+    }
+
+    private MockHttpServletResponse run(Mode mode, String localSite, String method, String path, String header)
+            throws Exception {
         AppProperties props = new AppProperties(mode, localSite, "S0", null, Map.of(
                 "s0", new AppProperties.Site("Trung tâm", null, "jdbc:postgresql://localhost:5430/hub", null, null),
                 "s1", new AppProperties.Site("Cầu Giấy", "CN1", "jdbc:postgresql://localhost:5431/cn1", null, null),
                 "s2", new AppProperties.Site("Đống Đa", "CN2", "jdbc:postgresql://localhost:5432/cn2", null, null)));
-        MockHttpServletRequest req = new MockHttpServletRequest("GET", path);
+        MockHttpServletRequest req = new MockHttpServletRequest(method, path);
         if (header != null) {
             req.addHeader(SiteFilter.HEADER, header);
         }

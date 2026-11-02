@@ -45,7 +45,7 @@ class LuotControllerTest {
     @Test
     void createKham_validBody_returns201WithCode() throws Exception {
         when(luotKhamService.create(any())).thenReturn(new TaoLuotResponse("K-CN1-TMH-BS-CN1-01-261023-001", "KHAM", "BN01",
-                "Nguyễn Văn An", List.of("CDDT-CN1-010"), null, false, false, new BigDecimal("150000"), List.of()));
+                "Nguyễn Văn An", List.of("CDDT-CN1-010"), null, false, new BigDecimal("150000"), List.of()));
 
         mvc.perform(post("/api/luot-kham").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
                         .content("""

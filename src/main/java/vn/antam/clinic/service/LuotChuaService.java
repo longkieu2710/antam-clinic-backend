@@ -124,7 +124,7 @@ public class LuotChuaService {
                 khoi ? thoiGian : null);
 
         return new TaoLuotResponse(maLuot, LuotKhamChua.LOAI_CHUA, dot.maBN(), dot.tenBN(), List.of(dot.maCDDT()),
-                lanThu, khoi, false, rows.tongTien(), List.of());
+                lanThu, khoi, rows.tongTien(), List.of());
     }
 
     /** Đánh dấu đợt "Ngừng điều trị" — bệnh nhân bỏ dở (BR12); bác sĩ không được thưởng cho đợt này. */

@@ -33,8 +33,18 @@ public class DataSourceConfig {
             // Chỉ rõ driver: nếu để DriverManager tự dò thì khi chạy bằng java -jar, request đầu tiên đi từ
             // thread ForkJoinPool (SiteHealthService) không thấy BOOT-INF/lib → "No suitable driver" cho mọi pool.
             ds.setDriverClassName("org.postgresql.Driver");
-            ds.setUsername(site.username() != null ? site.username() : props.db().username());
-            ds.setPassword(site.password() != null ? site.password() : props.db().password());
+            boolean hub = id.equals(props.hubSite());
+            // Bản chi nhánh gọi về S0 bằng role chỉ chạy được hàm tra cứu (scripts/sql/07_bao_mat_hub.sql)
+            boolean traCuu = hub && props.mode() == AppProperties.Mode.BRANCH && props.db().traCuuUsername() != null;
+            ds.setUsername(site.username() != null ? site.username()
+                    : traCuu ? props.db().traCuuUsername() : props.db().username());
+            ds.setPassword(site.password() != null ? site.password()
+                    : traCuu ? props.db().traCuuPassword() : props.db().password());
+            // Bản Trung tâm chỉ xem dữ liệu chi nhánh: PostgreSQL từ chối mọi lệnh ghi trên kết nối này,
+            // kể cả khi một request ghi lọt qua SiteFilter
+            if (!hub && props.mode() == AppProperties.Mode.HQ) {
+                ds.addDataSourceProperty("options", "-c default_transaction_read_only=on");
+            }
             ds.setMaximumPoolSize(props.db().poolSize());
             ds.setMinimumIdle(1);
             ds.setConnectionTimeout(3_000);

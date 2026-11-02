@@ -1,0 +1,91 @@
+# =============================================================================
+# Demo nhiều máy: phần chạy trên MỘT máy — CSDL của cơ sở đó + api + web, cùng một source cho cả 4 máy.
+# Máy nào là cơ sở nào: dòng app.may-nay trong src/main/resources/application.yml (file được mount vào api,
+# sửa xong chỉ cần restart api). Luôn chạy qua script để chọn đúng profile:
+#   macOS / Linux:  ./scripts/may.sh up        Windows:  .\scripts\may.ps1 up
+#
+#   profile hq  : db-hq  (ql_phongkham_hub, wal_level=logical) + api + web
+#   profile cn1 : db-cn1 (ql_phongkham_cn1) + api + web        ... cn2, cn3 tương tự
+#
+# CSDL publish cổng CONG_DB (mặc định 5432 = app.db.cong-may) để 3 máy kia gọi tới qua Tailscale; api gọi CSDL của
+# chính máy bằng alias db-cuc-bo (APP_DB_HOST_CUC_BO). Khởi tạo dữ liệu một lần cho cả 4 máy: scripts/init_may.sh.
+# Không dùng thư mục CSDL/ — trên mỗi máy demo chỉ chạy file này.
+# =============================================================================
+name: antam-may
+
+x-db: &db
+  image: postgres:16-alpine
+  restart: unless-stopped
+  ports: ["${CONG_DB:-5432}:5432"]
+  networks:
+    default:
+      aliases: [db-cuc-bo]
+
+x-db-env: &db-env
+  POSTGRES_USER: admin
+  POSTGRES_PASSWORD: password123
+
+x-app-profiles: &app-profiles [hq, cn1, cn2, cn3]
+
+services:
+  db-hq:
+    <<: *db
+    profiles: [hq]
+    command: "postgres -c wal_level=logical"
+    environment:
+      <<: *db-env
+      POSTGRES_DB: ql_phongkham_hub
+    volumes: [db_hq:/var/lib/postgresql/data]
+
+  db-cn1:
+    <<: *db
+    profiles: [cn1]
+    environment:
+      <<: *db-env
+      POSTGRES_DB: ql_phongkham_cn1
+    volumes: [db_cn1:/var/lib/postgresql/data]
+
+  db-cn2:
+    <<: *db
+    profiles: [cn2]
+    environment:
+      <<: *db-env
+      POSTGRES_DB: ql_phongkham_cn2
+    volumes: [db_cn2:/var/lib/postgresql/data]
+
+  db-cn3:
+    <<: *db
+    profiles: [cn3]
+    environment:
+      <<: *db-env
+      POSTGRES_DB: ql_phongkham_cn3
+    volumes: [db_cn3:/var/lib/postgresql/data]
+
+  api:
+    profiles: *app-profiles
+    build: .
+    image: antam-clinic-backend:latest
+    restart: unless-stopped
+    environment:
+      # CSDL của chính máy là service có alias db-cuc-bo. Đặt bằng biến môi trường vì application.yml mount bên dưới
+      # được ưu tiên hơn application-docker.yml trong jar
+      APP_DB_HOST_CUC_BO: db-cuc-bo
+    volumes:
+      # Spring Boot đọc ./config/application.yml (thư mục làm việc /app) trước bản trong jar
+      - ./src/main/resources/application.yml:/app/config/application.yml:ro
+
+  web:
+    profiles: *app-profiles
+    build: ../frontend
+    image: antam-clinic-frontend:latest
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://api:8080
+    ports: ["${WEB_PORT:-3000}:80"]
+    depends_on: [api]
+
+volumes:
+  db_hq:
+  db_cn1:
+  db_cn2:
+  db_cn3:

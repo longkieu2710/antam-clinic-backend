@@ -79,6 +79,94 @@ class AppPropertiesTest {
         assertThat(props.sites().get("S1").maCn()).isEqualTo("CN1");
     }
 
+    @Test
+    void constructor_mayNayCn2_derivesBranchModeWithLocalDbAndHubAddress() {
+        AppProperties props = new AppProperties("CN2", Map.of("hq", "100.64.0.10", "cn1", "100.64.0.11"), null, null, "S0",
+                null, sites());
+
+        assertThat(props.mode()).isEqualTo(Mode.BRANCH);
+        assertThat(props.localSite()).isEqualTo("S2");
+        assertThat(props.sites()).containsOnlyKeys("S0", "S2");
+        assertThat(props.sites().get("S0").url()).isEqualTo("jdbc:postgresql://100.64.0.10:5432/ql_phongkham_hub");
+        assertThat(props.sites().get("S2").url()).as("CSDL của chính máy này").isEqualTo("jdbc:postgresql://localhost:5432/ql_phongkham_cn2");
+    }
+
+    @Test
+    void constructor_mayNayHq_derivesHqModeWithEveryBranchAddress() {
+        AppProperties props = new AppProperties("hq", Map.of("hq", "x", "cn1", "100.64.0.11", "cn2", "100.64.0.12",
+                "cn3", "100.64.0.13"), Mode.ALL, null, "S0", new AppProperties.Db(null, null, null, null, null, 6543, "db-cuc-bo"),
+                sites());
+
+        assertThat(props.mode()).isEqualTo(Mode.HQ);
+        assertThat(props.sites()).containsOnlyKeys("S0", "S1", "S2", "S3");
+        assertThat(props.sites().get("S0").url()).isEqualTo("jdbc:postgresql://db-cuc-bo:6543/ql_phongkham_hub");
+        assertThat(props.sites().get("S3").url()).isEqualTo("jdbc:postgresql://100.64.0.13:6543/ql_phongkham_cn3");
+    }
+
+    @Test
+    void constructor_mayNayHqMissingBranchAddress_throws() {
+        assertThatThrownBy(() -> new AppProperties("hq", Map.of("cn1", "100.64.0.11"), null, null, "S0", null, sites()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("app.dia-chi-may.cn2");
+    }
+
+    @Test
+    void constructor_unknownMayNay_throws() {
+        assertThatThrownBy(() -> new AppProperties("cn9", Map.of(), null, null, "S0", null, sites()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cn9");
+    }
+
+    @Test
+    void bind_mayNayFromYaml_overridesModeAndUrls() {
+        ConfigurationPropertySource yml = new MapConfigurationPropertySource(Map.of(
+                "app.may-nay", "cn1",
+                "app.dia-chi-may.hq", "100.64.0.10",
+                "app.dia-chi-may.cn1", "",
+                "app.mode", "all",
+                "app.db.username", "admin",
+                "app.db.password", "password123",
+                "app.db.tra-cuu-username", "chi_nhanh_tra_cuu",
+                "app.sites.s0.url", "jdbc:postgresql://localhost:5430/ql_phongkham_hub",
+                "app.sites.s1.ma-cn", "CN1",
+                "app.sites.s1.url", "jdbc:postgresql://localhost:5431/ql_phongkham_cn1"));
+
+        AppProperties props = new Binder(yml).bind("app", AppProperties.class).get();
+
+        assertThat(props.mode()).isEqualTo(Mode.BRANCH);
+        assertThat(props.sites().get("S0").url()).isEqualTo("jdbc:postgresql://100.64.0.10:5432/ql_phongkham_hub");
+        assertThat(props.sites().get("S1").url()).isEqualTo("jdbc:postgresql://localhost:5432/ql_phongkham_cn1");
+        assertThat(props.db().password()).as("khối app.db phải được bind").isEqualTo("password123");
+        assertThat(props.db().traCuuUsername()).isEqualTo("chi_nhanh_tra_cuu");
+        assertThat(props.db().congMay()).isEqualTo(5432);
+    }
+
+    @Test
+    void bind_emptyMayNayEnvOverFileValue_runsSingleMachineMode() {
+        ConfigurationPropertySource yml = new MapConfigurationPropertySource(Map.of(
+                "app.may-nay", "hq",
+                "app.dia-chi-may.hq", "172.20.10.11",
+                "app.sites.s0.url", "jdbc:postgresql://localhost:5430/ql_phongkham_hub",
+                "app.sites.s1.ma-cn", "CN1",
+                "app.sites.s1.url", "jdbc:postgresql://localhost:5431/ql_phongkham_cn1"));
+        SystemEnvironmentPropertySource env = new SystemEnvironmentPropertySource("env", Map.of("APP_MAY_NAY", ""));
+        List<ConfigurationPropertySource> sources = List.of(ConfigurationPropertySources.from(env).iterator().next(), yml);
+
+        AppProperties props = new Binder(sources).bind("app", AppProperties.class).get();
+
+        assertThat(props.mayNay()).as("docker-compose.yml / phan-tan đặt APP_MAY_NAY rỗng").isNull();
+        assertThat(props.mode()).isEqualTo(Mode.ALL);
+        assertThat(props.sites().get("S1").url()).isEqualTo("jdbc:postgresql://localhost:5431/ql_phongkham_cn1");
+    }
+
+    private static Map<String, AppProperties.Site> sites() {
+        return Map.of(
+                "s0", new AppProperties.Site("Trung tâm", null, "jdbc:postgresql://localhost:5430/ql_phongkham_hub", null, null),
+                "s1", new AppProperties.Site("Cầu Giấy", "CN1", "jdbc:postgresql://localhost:5431/ql_phongkham_cn1", null, null),
+                "s2", new AppProperties.Site("Đống Đa", "CN2", "jdbc:postgresql://localhost:5432/ql_phongkham_cn2", null, null),
+                "s3", new AppProperties.Site("Ba Đình", "CN3", "jdbc:postgresql://localhost:5433/ql_phongkham_cn3", null, null));
+    }
+
     private static AppProperties.Site site(String maCn) {
         return new AppProperties.Site(maCn, maCn, "jdbc:postgresql://localhost/" + maCn, null, null);
     }

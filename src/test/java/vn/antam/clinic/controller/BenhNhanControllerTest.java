@@ -19,7 +19,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import vn.antam.clinic.config.AppProperties;
-import vn.antam.clinic.dto.response.BenhNhanToanChuoiResponse;
+import vn.antam.clinic.dto.response.ChiMucBenhNhanResponse;
+import vn.antam.clinic.dto.response.TiepDonResponse;
 import vn.antam.clinic.exception.BusinessException;
 import vn.antam.clinic.service.BenhNhanService;
 
@@ -34,17 +35,6 @@ class BenhNhanControllerTest {
     BenhNhanService service;
 
     @Test
-    void searchCucBo_withQuery_returnsBranchMatches() throws Exception {
-        when(service.searchCucBo("0912345678")).thenReturn(List.of(new BenhNhanToanChuoiResponse("BN-CN1-0001",
-                "Nguyễn Văn C", null, "Nam", null, "0912345678", null, null, true, 0)));
-
-        mvc.perform(get("/api/benh-nhan/cuc-bo").header("X-Site", "S1").param("q", "0912345678"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].maBN").value("BN-CN1-0001"))
-                .andExpect(jsonPath("$[0].coTaiChiNhanh").value(true));
-    }
-
-    @Test
     void create_invalidBloodTypeAndCccd_returns400() throws Exception {
         mvc.perform(post("/api/benh-nhan").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -57,14 +47,16 @@ class BenhNhanControllerTest {
     }
 
     @Test
-    void searchToanChuoi_passesQuery() throws Exception {
-        when(service.searchToanChuoi("001095006666")).thenReturn(List.of(new BenhNhanToanChuoiResponse("BN02",
-                "Trần Thị Bình", null, "Nữ", "001095006666", null, null, null, false, 0)));
+    void tiepDon_cccdOfOtherBranch_returnsCodeWithoutPersonalData() throws Exception {
+        when(service.tiepDon("001095006666")).thenReturn(new TiepDonResponse(List.of(),
+                List.of(new ChiMucBenhNhanResponse("BN02", "CN2", true)), true, null));
 
-        mvc.perform(get("/api/benh-nhan/toan-chuoi").param("q", "001095006666").header("X-Site", "S1"))
+        mvc.perform(get("/api/benh-nhan/tiep-don").param("q", "001095006666").header("X-Site", "S1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].maBN").value("BN02"))
-                .andExpect(jsonPath("$[0].coTaiChiNhanh").value(false));
+                .andExpect(jsonPath("$.noiKhac[0].maBN").value("BN02"))
+                .andExpect(jsonPath("$.noiKhac[0].maCn").value("CN2"))
+                .andExpect(jsonPath("$.noiKhac[0].hoTen").doesNotExist())
+                .andExpect(jsonPath("$.daTraToanChuoi").value(true));
     }
 
     @Test

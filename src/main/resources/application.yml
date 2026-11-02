@@ -13,11 +13,21 @@ spring:
       mode: never   # schema do nhóm DB quản lý bằng script trong CSDL/, ứng dụng không tự tạo bảng
 
 app:
-  # Bản triển khai (cùng một source):
+  # ---- Demo nhiều máy: mỗi máy một cơ sở (README mục 1.3) -------------------------------------------------
+  # Mỗi máy chỉ sửa dòng may-nay; khối dia-chi-may giống nhau trên cả 4 máy (IP Tailscale, xem: tailscale ip -4).
+  #   hq        — máy Trung tâm: danh mục chung, báo cáo toàn chuỗi; chọn chi nhánh để XEM (không thêm / sửa / xoá)
+  #   cn1..cn3  — máy chi nhánh: chỉ dữ liệu của chi nhánh đó, không vào chức năng Trung tâm
+  #   (trống)   — chạy cả cụm 4 trạm trên 1 máy như lúc phát triển (dùng mode / local-site bên dưới)
+  may-nay: hq
+  dia-chi-may:
+    hq: 172.20.10.11
+    cn1:
+    cn2:
+    cn3:
+  # ---- Khi may-nay để trống: bản triển khai trên 1 máy (biến môi trường APP_MODE / APP_LOCAL_SITE) ----------
   #   all    — một bản cho mọi trạm, FE chọn chi nhánh bằng X-Site (mặc định)
-  #   branch — bản đặt tại một cơ sở: dữ liệu chi nhánh luôn ở local-site, chạy được khi mất kết nối Trung tâm
-  #   hq     — bản Trung tâm: chỉ danh mục chung (/api/master/**) và báo cáo toàn chuỗi (/api/hq/**)
-  # Đặt bằng biến môi trường: APP_MODE=branch APP_LOCAL_SITE=S1
+  #   branch — bản chi nhánh của local-site (giả lập: scripts/phan_tan.sh)
+  #   hq     — bản Trung tâm
   mode: all
   local-site:
   hub-site: S0          # trạm trung tâm: /api/master/** và /api/hq/** luôn đi trạm này
@@ -25,6 +35,12 @@ app:
     username: admin
     password: password123
     pool-size: 5
+    # Bản chi nhánh gọi về S0 bằng role chỉ chạy được hàm tra cứu (scripts/sql/07_bao_mat_hub.sql)
+    tra-cuu-username: chi_nhanh_tra_cuu
+    tra-cuu-password: tracuu123
+    # Demo nhiều máy: cổng CSDL giữa các máy. Host CSDL của chính máy (db.host-cuc-bo) mặc định localhost;
+    # docker-compose.may.yml đặt APP_DB_HOST_CUC_BO=db-cuc-bo
+    cong-may: 5432
   # Mã chi nhánh (ma-cn) phải khớp CHI_NHANH.MaCN trong dữ liệu đang chạy (bản phân tán: CN1..CN3)
   sites:
     s0:

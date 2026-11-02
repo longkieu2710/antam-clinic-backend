@@ -7,13 +7,19 @@ Tech stack chi tiết: `requirements/tech-stack.md` · Thiết kế màn hình: 
 source_code/
 ├── backend/                  repo antam-clinic-backend · Java 21 · Spring Boot 4.1 · JdbcClient (SQL thuần) · springdoc
 │   ├── README.md, CLAUDE.md  tài liệu chung của cả ứng dụng (file này)
+│   ├── HUONG_DAN_CHAY_DEMO.md  từng bước chạy demo 4 máy / thử trên 1 máy, kịch bản demo
 │   ├── docker-compose.yml    web (nginx + React) + api (Spring Boot), nối vào mạng Docker của cụm DB
-│   ├── docker-compose.phan-tan.yml  4 cặp web + api theo cơ sở (Trung tâm, CN1–CN3) trên 1 máy (mục 1.2)
+│   ├── docker-compose.may.yml       demo 4 máy: CSDL + api + web của một cơ sở trên mỗi máy (mục 1.2)
+│   ├── docker-compose.phan-tan.yml  giả lập 4 cơ sở trên 1 máy (mục 1.3)
 │   ├── Dockerfile            image backend
 │   ├── scripts/init_db.sh    dựng 4 container PostgreSQL (S0–S3) + nạp schema, dữ liệu, replication, FDW
 │   ├── scripts/tat_jit.sh    tắt / bật JIT của PostgreSQL trên 4 container (truy vấn toàn chuỗi nhanh hơn)
 │   ├── scripts/docker_app.sh build + chạy web và api bằng Docker (mục 1.1)
-│   ├── scripts/phan_tan.sh   chạy 4 cặp web + api theo cơ sở, giả lập mất mạng từng cơ sở (mục 1.2)
+│   ├── scripts/may.sh, may.ps1  demo 4 máy: chạy phần của máy này, kiểm tra kết nối (mục 1.2)
+│   ├── scripts/init_may.sh   demo 4 máy: khởi tạo CSDL của cả 4 máy qua mạng, chạy một lần (mục 1.2)
+│   ├── scripts/gia_lap_4_may.sh  thử demo 4 máy ngay trên 1 máy (+ docker-compose.gia-lap.yml, mục 1.2)
+│   ├── scripts/sql/          bổ sung của nhóm ứng dụng chạy sau script của nhóm DB: 07 bảo mật bệnh nhân, 08 giới hạn chờ FDW
+│   ├── scripts/phan_tan.sh   giả lập 4 cơ sở trên 1 máy, giả lập mất mạng từng cơ sở (mục 1.3)
 │   └── .claude/              skills/ (quy ước dự án: skills/conventions/SKILL.md) · agents/ (spring-boot-engineer, code-reviewer...)
 └── frontend/                 repo antam-clinic-frontend · React 19 · Vite 8 · TypeScript · Ant Design 6 · TanStack Query · React Router
     ├── README.md, CLAUDE.md  bản ngắn: cách chạy FE + quy ước FE
@@ -77,22 +83,90 @@ cd source_code/backend/scripts && ./docker_app.sh   # tự dò mạng của cụ
 - Backend tắt: nginx trả JSON `502 API_UNAVAILABLE` nên giao diện vẫn hiện thông báo dễ hiểu. Một trạm DB tắt: API trả `503 SITE_UNAVAILABLE` / `CHAIN_UNAVAILABLE` như khi chạy ngoài Docker.
 - `docker-compose.yml` và `scripts/` nằm trong repo backend; `Dockerfile` + `nginx/` của frontend nằm trong repo frontend. Compose build frontend từ `../frontend`, nên cần clone 2 repo cạnh nhau như cây thư mục ở trên.
 
-### 1.2. Triển khai theo cơ sở: mỗi cơ sở một FE + BE + CSDL
+### 1.2. Demo 4 máy: mỗi máy một cơ sở (FE + BE + CSDL), nối nhau qua Tailscale
 
-Cùng một source FE và BE, chọn bản bằng biến môi trường của **backend** (frontend đọc `GET /api/system/mode` lúc mở
-trang rồi tự hiện đúng giao diện — không cần build FE riêng cho từng cơ sở):
+Hướng dẫn từng bước cho cả nhóm (demo 4 máy, thử trên 1 máy, kịch bản demo, xử lý lỗi): **`HUONG_DAN_CHAY_DEMO.md`**.
+Mục này mô tả cách hoạt động.
 
-| Biến | Bản | Dữ liệu chi nhánh | Giao diện |
-|---|---|---|---|
-| (không đặt) / `APP_MODE=all` | một bản cho mọi trạm — như trước | chi nhánh trong `X-Site` | đủ mọi màn, có dropdown chọn chi nhánh |
-| `APP_MODE=branch APP_LOCAL_SITE=S1` | bản đặt tại cơ sở CN1 | luôn S1 (`X-Site` khác → 400 `WRONG_SITE`); chỉ mở pool S0 + S1 | khoá vào CN1; có thuốc / bệnh / dịch vụ và hồ sơ toàn chuỗi (cần kết nối S0); không có lương cơ sở, chi nhánh, báo cáo toàn chuỗi |
-| `APP_MODE=hq` | bản Trung tâm | không phục vụ (404 `NOT_SERVED`) | chỉ các màn làm việc với S0 + tổng quan hệ thống |
+Cùng một source cho cả 4 máy. Máy nào là cơ sở nào chỉ đổi **một dòng** trong
+`backend/src/main/resources/application.yml`; khối địa chỉ giống nhau trên cả 4 máy:
 
-Bản chi nhánh khi **mất kết nối Trung tâm** vẫn: tiếp đón (tự tra cứu trong chi nhánh), thêm bệnh nhân (mã
-`BN-CN1-0001` do chi nhánh cấp), tạo lượt khám / chữa, kê đơn, danh mục chi nhánh, báo cáo chi nhánh. Không làm được:
-sửa danh mục chung, hồ sơ toàn chuỗi, tạo lượt cho bệnh nhân chưa có hồ sơ tại chi nhánh.
+```yaml
+app:
+  may-nay: cn1            # hq | cn1 | cn2 | cn3
+  dia-chi-may:            # IP Tailscale của 4 máy (trên từng máy: tailscale ip -4)
+    hq:  100.64.0.10
+    cn1: 100.64.0.11
+    cn2: 100.64.0.12
+    cn3: 100.64.0.13
+```
 
-Chạy thử cả 4 cơ sở trên 1 máy (cần cụm DB đang chạy như mục 1):
+| Máy | Dữ liệu chi nhánh của mình | Dữ liệu chi nhánh khác | Chức năng Trung tâm (danh mục chung, báo cáo toàn chuỗi) | Dropdown chi nhánh |
+|---|---|---|---|---|
+| `cn1` / `cn2` / `cn3` | xem, thêm, sửa, xoá | không (`X-Site` khác → 400 `WRONG_SITE`) | không (403 `HQ_ONLY`); thuốc xem ở màn "Thuốc (bản sao)" | hiện, bị khoá |
+| `hq` | — | **chỉ xem** (ghi → 403 `READ_ONLY`; pool chi nhánh mở `default_transaction_read_only`) | đầy đủ | chọn được |
+
+Frontend đọc `GET /api/system/mode` lúc mở trang rồi tự hiện đúng giao diện (dropdown khoá, tag "Chỉ xem", ẩn nút
+thêm / sửa / xoá). Từ `may-nay` backend tự suy ra chế độ và URL: CSDL của chính máy qua `db-cuc-bo` (Docker), CSDL máy
+khác qua IP trong `dia-chi-may`, cổng `app.db.cong-may` (5432).
+
+**Bảo mật thông tin bệnh nhân giữa các chi nhánh** (`scripts/sql/07_*` — không sửa cấu trúc bảng nào):
+
+- Chi nhánh không đọc được hồ sơ của chi nhánh khác. View `TRA_CUU_BENH_NHAN_TOAN_CHUOI` ở chi nhánh bị gỡ; backend chi
+  nhánh gọi về S0 bằng role `chi_nhanh_tra_cuu` — role này **không SELECT được bảng / view nào**, chỉ chạy được 3 hàm
+  `SECURITY DEFINER` chỉ trả mã: `tim_ma_benh_nhan` (đúng số CCCD / thẻ BHYT → mã + chi nhánh đã lập hồ sơ),
+  `benh_dang_dieu_tri_noi_khac` (BR4 có / không), `ma_benh_nhan_theo_tien_to` (sinh mã).
+- Tiếp đón: họ tên, số điện thoại chỉ tìm trong chi nhánh; nhập đúng số CCCD / thẻ BHYT thì biết thêm "đã có mã
+  `BN02` ở CN2" → lập hồ sơ tại chi nhánh **với mã đó**, thông tin cá nhân nhập từ giấy tờ bệnh nhân đưa. Tạo lượt cho bệnh
+  nhân chưa có hồ sơ tại chi nhánh → 422 `NO_LOCAL_RECORD` (không còn chép hồ sơ từ S0).
+- Subscription của chi nhánh đăng nhập S0 bằng role `nhan_ban` (chỉ đọc 5 bảng danh mục) thay vì `admin`.
+- Máy Trung tâm vẫn xem đầy đủ (chỉ đọc) — đúng quy tắc ở bảng trên.
+
+**Các bước trên 4 máy** (mỗi máy: Docker Desktop + Tailscale cùng tailnet; clone 2 repo cạnh nhau như cây thư mục đầu file):
+
+1. Sửa `application.yml`: `may-nay` của máy đó + 4 IP trong `dia-chi-may`.
+2. Mỗi máy: `cd source_code/backend && ./scripts/may.sh up` (Windows, PowerShell: `.\scripts\may.ps1 up`) — chạy CSDL
+   của cơ sở (cổng 5432), api, web (:3000).
+3. Mỗi máy: `./scripts/may.sh kiem-tra` (`.\scripts\may.ps1 kiem-tra`) — thử kết nối tới CSDL 3 máy kia **từ trong
+   container**, như FDW / replication. Phải xanh hết trước bước 4.
+4. **Một lần, từ một máy macOS / Linux bất kỳ**: `./scripts/init_may.sh` — nạp schema + dữ liệu của nhóm DB (`CSDL/`) vào
+   cả 4 CSDL qua mạng, đổi tên container trong SQL thành IP, chạy bước bổ sung 07 + 08. Mất vài phút; in "CSDL CỦA 4 MÁY
+   ĐÃ SẴN SÀNG" là xong.
+5. Mở `http://localhost:3000` trên từng máy. Demo mất mạng: **tắt Tailscale** trên một máy chi nhánh — máy đó vẫn tiếp
+   đón, thêm bệnh nhân (`BN-CN1-0002`), khám chữa; máy Trung tâm báo chi nhánh đó mất kết nối sau khoảng 5 giây. Bật lại
+   Tailscale → Logical Replication tự đồng bộ bù danh mục.
+
+- Sửa IP trong `application.yml` xong chạy lại `./scripts/may.sh up` (build lại phần đổi, nhanh). Đổi `may-nay` sang vai khác
+  thì `may.sh down` **trước** khi sửa, nếu không CSDL của vai cũ vẫn chạy và giữ cổng 5432.
+- `./scripts/may.sh down` dừng (giữ dữ liệu), `xoa-du-lieu` dừng và xoá CSDL của máy đó (sau đó chạy lại `init_may.sh`).
+- Cổng 5432 phải trống trên cả 4 máy (tắt PostgreSQL cài sẵn nếu có). Đổi cổng: `app.db.cong-may` (cả 4 máy giống nhau).
+- Firewall phải cho cổng 5432 vào — Windows: `New-NetFirewallRule -DisplayName 'AnTam CSDL' -Direction Inbound -Protocol
+  TCP -LocalPort 5432 -Action Allow` (PowerShell Admin). ACL của tailnet (nếu có) phải cho phép cổng 5432 giữa 4 máy.
+- Máy Windows mà `kiem-tra` báo không gọi được dù Tailscale đã bật: container (WSL2) không ra được mạng Tailscale → thêm
+  `[wsl2]` / `networkingMode=mirrored` vào `%UserProfile%\.wslconfig`, chạy `wsl --shutdown`, mở lại Docker Desktop.
+- `08_gioi_han_cho_fdw_hub.sql` đặt `tcp_user_timeout` / keepalive cho FDW ở S0: chi nhánh mất mạng thì báo cáo toàn chuỗi
+  và tra cứu báo lỗi sau ~5 giây thay vì treo nhiều phút chờ TCP. Thao tác cần S0 ở máy chi nhánh chờ tối đa 3–5 giây.
+- Chi nhánh offline lâu làm S0 giữ WAL cho replication slot — buổi demo ngắn thì không sao; chạy lâu thì đặt
+  `max_slot_wal_keep_size` ở S0.
+
+**Thử trước trên 1 máy** (không cần Tailscale, không cần sửa `application.yml`, không đụng cụm `CSDL/` đang chạy): chạy
+đúng `docker-compose.may.yml` + `init_may.sh` cho 4 "máy" trên máy của bạn, mạng Docker `tailnet-gia` đóng vai Tailscale.
+
+```bash
+cd source_code/backend
+./scripts/gia_lap_4_may.sh up             # Trung tâm :3200 · Cầu Giấy :3201 · Đống Đa :3202 · Ba Đình :3203 (lần đầu tự khởi tạo CSDL)
+./scripts/gia_lap_4_may.sh mat-mang cn1   # giống tắt Tailscale ở máy cn1 · co-mang cn1 để nối lại
+./scripts/gia_lap_4_may.sh down           # xoá cả 4 máy giả lập
+```
+
+- `app.may-nay` trong `application.yml` là danh tính của **máy thật**; `./mvnw spring-boot:run` cũng đọc dòng này. Khi phát
+  triển trên 1 máy với cụm `CSDL/`, để trống dòng đó. `docker_app.sh` (mục 1.1) và `phan_tan.sh` (mục 1.3) luôn bỏ qua nó.
+
+### 1.3. Giả lập các cơ sở trên cụm DB của mục 1
+
+Cách cũ, dùng cụm 4 container của `CSDL/`: chạy 4 cặp web + api trên cụm DB của mục 1 (chế độ đặt bằng biến môi trường `APP_MODE` /
+`APP_LOCAL_SITE`, không dùng `may-nay`). Cụm DB cần bước bổ sung: `./scripts/init_db.sh` đã gồm bước 8; cụm khởi tạo
+trước đó thì chạy `./scripts/init_db.sh --bo-sung` (Windows, sau `CSDL\init_db.ps1`: `.\scripts\bo_sung.ps1`).
 
 ```bash
 cd source_code/backend/scripts
@@ -111,10 +185,6 @@ cd source_code/backend/scripts
 - Trong lúc một cơ sở "mất mạng", cổng `localhost:543x` của CSDL đó có thể không vào được (DBeaver báo connection reset,
   `EntitySchemaTest` tự bỏ qua). Khi nối lại, gắn / gỡ LAN, script khởi động lại container CSDL đó (2–3 giây, dữ liệu giữ
   nguyên) vì Docker Desktop không tự chuyển cổng sang IP mới của container.
-- Bản chi nhánh chờ tối đa 3 giây (`connectionTimeout` của pool) rồi mới báo lỗi ở các thao tác cần S0.
-- Triển khai thật trên nhiều máy còn cần (chưa làm, thuộc nhóm DB): đổi tên container trong `CSDL/02_*`, `03_setup_subscriber_*`,
-  `06_*` sang hostname/IP, mở `listen_addresses` / `pg_hba.conf`, đặt `max_slot_wal_keep_size` ở S0 (chi nhánh offline lâu làm
-  S0 giữ WAL), `connect_timeout` cho các FDW server, và VPN giữa các cơ sở (mật khẩu FDW / subscription đang ghi rõ).
 
 ## 2. Lệnh thường dùng
 
@@ -138,8 +208,8 @@ FE ──(header X-Site: S1|S2|S3)──► SiteFilter ──► SiteContext ─
 
 | Đường dẫn API | Trạm |
 |---|---|
-| `/api/master/**`, `/api/hq/**` | luôn S0 (danh mục chung, báo cáo toàn chuỗi) |
-| `/api/**` khác | bản `all`: chi nhánh trong header `X-Site` (thiếu header → 400 `MISSING_SITE`) · bản `branch`: luôn `APP_LOCAL_SITE` · bản `hq`: 404 `NOT_SERVED` (mục 1.2) |
+| `/api/master/**`, `/api/hq/**` | luôn S0 (danh mục chung, báo cáo toàn chuỗi); máy chi nhánh → 403 `HQ_ONLY` |
+| `/api/**` khác | bản `all`: chi nhánh trong header `X-Site` (thiếu header → 400 `MISSING_SITE`) · máy chi nhánh: luôn trạm của máy · máy Trung tâm: chỉ GET theo `X-Site`, ghi → 403 `READ_ONLY` (mục 1.2) |
 | `/api/system/**` | không định tuyến (tự kiểm tra các trạm đã khai báo; `/api/system/mode` cho biết bản đang chạy) |
 
 - Danh sách trạm, mã chi nhánh, URL JDBC: `backend/src/main/resources/application.yml` (`app.sites`).
@@ -154,7 +224,7 @@ FE ──(header X-Site: S1|S2|S3)──► SiteFilter ──► SiteContext ─
 | Màn hình | API |
 |---|---|
 | Tổng quan chi nhánh — lượt hôm nay, đợt đang điều trị, doanh thu tháng, lịch hẹn, đợt quá hạn, bệnh nhiều nhất | `GET /api/tong-quan` |
-| Tiếp đón — tra cứu bệnh nhân toàn chuỗi, chi nhánh đang có hồ sơ; mất kết nối thì tra cứu trong chi nhánh | `GET /api/benh-nhan/toan-chuoi?q=` · `GET /api/hq/benh-nhan/chi-nhanh?ma=BN01,BN02` · `GET /api/benh-nhan/cuc-bo?q=` |
+| Tiếp đón — hồ sơ tại chi nhánh; đúng số CCCD / thẻ BHYT thì thêm mã ở chi nhánh khác (không thông tin cá nhân) | `GET /api/benh-nhan/tiep-don?q=` |
 | Tạo lượt khám — chẩn đoán mở đợt, y tá, dịch vụ, thuốc, thiết bị | `POST /api/luot-kham` |
 | Tạo lượt chữa — chọn đợt đang mở, "Khỏi" kết thúc đợt; ngừng điều trị | `GET /api/benh-nhan/{maBN}/dot-dang-dieu-tri` · `POST /api/luot-chua` · `PUT /api/dot-dieu-tri/{maCDDT}/ngung` |
 | Danh sách lượt — lọc, xem chi tiết, xoá lượt nhập nhầm | `GET /api/luot?tu=&den=&loai=&khoa=&bs=&q=` · `GET/DELETE /api/luot/{maLuot}` |
@@ -165,7 +235,7 @@ FE ──(header X-Site: S1|S2|S3)──► SiteFilter ──► SiteContext ─
 |---|---|
 | Bác sĩ — tìm, lọc khoa, CRUD | `GET/POST /api/bac-si` · `GET/PUT/DELETE /api/bac-si/{maNV}` |
 | Y tá — tìm, lọc khoa, CRUD, đếm lượt hỗ trợ | `GET/POST /api/y-ta` · `GET/PUT/DELETE /api/y-ta/{maNV}` |
-| Bệnh nhân — CRUD, tra cứu toàn chuỗi khi thêm mới | `GET/POST /api/benh-nhan` · `GET/PUT/DELETE /api/benh-nhan/{maBN}` · `GET /api/benh-nhan/toan-chuoi?q=` |
+| Bệnh nhân — CRUD, tra mã cũ theo CCCD / thẻ BHYT khi thêm mới | `GET/POST /api/benh-nhan` · `GET/PUT/DELETE /api/benh-nhan/{maBN}` · `GET /api/benh-nhan/tiep-don?q=` |
 | Khoa — CRUD | `GET/POST /api/khoa` · `GET/PUT/DELETE /api/khoa/{maKhoa}` |
 | Thiết bị — CRUD | `GET/POST /api/thiet-bi` · `GET/PUT/DELETE /api/thiet-bi/{maTB}` |
 
@@ -201,7 +271,7 @@ Bỏ trống `thang` / `tu`, `den` → lấy tháng hiện tại.
 
 Ghi chú nghiệp vụ:
 - **Mã lượt** (BR5, đề bài yêu cầu chứa khoa và bác sĩ): `K-{MaKhoa}-{MaBS}-yyMMdd-NNN` cho lượt khám, `C-…` cho lượt chữa, vd `K-CN1-TMH-BS-CN1-01-261024-001`; mã đợt `CDDT-CN1-NNN`. Dữ liệu mẫu cũ (`K-CN1-001`) giữ nguyên. Hai người lưu cùng lúc mà trùng mã thì backend sinh lại mã, tối đa 3 lần.
-- **Lượt khám** (1 transaction tại chi nhánh): bệnh nhân chưa có hồ sơ ở chi nhánh thì chép bản ghi từ view `BENH_NHAN` ở S0 (giữ mã) → `LUOT_KHAM_CHUA` → `LAN_KHAM` → mỗi chẩn đoán một đợt "Đang điều trị" → `HO_TRO` → `SU_DUNG_DV` / `KE_DON` / `SU_DUNG_TB`. Kiểm tra:
+- **Lượt khám** (1 transaction tại chi nhánh): bệnh nhân phải có hồ sơ tại chi nhánh (không thì 422 `NO_LOCAL_RECORD` — lập hồ sơ ở màn Tiếp đón) → `LUOT_KHAM_CHUA` → `LAN_KHAM` → mỗi chẩn đoán một đợt "Đang điều trị" → `HO_TRO` → `SU_DUNG_DV` / `KE_DON` / `SU_DUNG_TB`. Kiểm tra:
   - BR6: khoa, bác sĩ, y tá, thiết bị phải của chi nhánh. Bác sĩ phải đang làm việc và đúng khoa; thiết bị không được "Ngừng hoạt động".
   - BR1: trong một lượt không chẩn đoán trùng bệnh. BR13: không chẩn đoán thì không mở đợt và kết luận ghi "Không phát hiện bệnh".
   - BR4: bệnh nhân đang có đợt cùng bệnh chưa kết thúc ở bất kỳ chi nhánh nào thì chặn (kiểm tra qua view toàn cục ở S0). S0 tắt → chỉ kiểm tra tại chi nhánh và trả cảnh báo.
@@ -217,7 +287,7 @@ Ghi chú nghiệp vụ:
   - Chỉ xoá được lượt trong tháng hiện tại, để lương và doanh thu các tháng trước không đổi.
   - Lượt chữa: phải là lần chữa cuối của đợt. Nếu chính lần đó kết thúc đợt thì đợt mở lại "Đang điều trị".
   - Lượt khám: các đợt mở từ lượt đó phải chưa có lần chữa. Khoá ngoại CASCADE xoá kèm đợt, y tá, chi phí.
-- **Mã tự sinh** khi để trống: `BS-CN1-02`, `YT-CN1-03`, `TB-CN1-02`, `CN1-K03` (khoa), `B05`, `DV05`, `T05`. Mã bệnh nhân mới dạng `BN-CN1-0001` mang mã chi nhánh cấp nó, nên không trùng toàn chuỗi mà vẫn sinh được khi mất kết nối: có mạng thì tính số tiếp theo trên view `TRA_CUU_BENH_NHAN_TOAN_CHUOI`, mất mạng thì trên bảng `BENH_NHAN` của chi nhánh. Mã cũ (`BN01`…, `BN000001` trong bộ CSV) giữ nguyên.
+- **Mã tự sinh** khi để trống: `BS-CN1-02`, `YT-CN1-03`, `TB-CN1-02`, `CN1-K03` (khoa), `B05`, `DV05`, `T05`. Mã bệnh nhân mới dạng `BN-CN1-0001` mang mã chi nhánh cấp nó, nên không trùng toàn chuỗi mà vẫn sinh được khi mất kết nối: có mạng thì tính thêm các mã cùng tiền tố ở chi nhánh khác (hàm `ma_benh_nhan_theo_tien_to` ở S0), mất mạng thì chỉ trên bảng `BENH_NHAN` của chi nhánh. Mã cũ (`BN01`…, `BN000001` trong bộ CSV) giữ nguyên.
 - **Bệnh nhân đã khám ở chi nhánh khác**: ô "Tra cứu toàn chuỗi" trong hộp thoại thêm mới → "Dùng thông tin này" điền sẵn thông tin và dùng lại đúng mã BN.
 - **Xoá (BR9)**: bác sĩ / y tá / thiết bị đã có lịch sử → chuyển "Ngừng hoạt động" (SOFT), chưa có → xoá hẳn (HARD). Bệnh nhân đã có lượt khám, khoa còn nhân viên hoặc lượt, thuốc / bệnh / dịch vụ đã dùng ở bất kỳ chi nhánh nào (kiểm tra qua view toàn cục ở S0) → từ chối 409 `IN_USE`.
 - **Lương cơ sở** là dữ liệu lịch sử: mức đã có hiệu lực (ngày áp dụng ≤ hôm nay) không sửa / xoá được (409 `HISTORY_LOCKED`); đổi lương = thêm mức mới.

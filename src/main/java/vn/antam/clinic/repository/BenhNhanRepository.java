@@ -6,13 +6,13 @@ import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import vn.antam.clinic.dto.response.BenhNhanResponse;
-import vn.antam.clinic.dto.response.BenhNhanToanChuoiResponse;
+import vn.antam.clinic.dto.response.BenhNhanTiepDonResponse;
 import vn.antam.clinic.entity.BenhNhan;
 import vn.antam.clinic.entity.ChanDoanDieuTri;
 
 /**
- * Bảng BENH_NHAN của chi nhánh đang chọn, và view TRA_CUU_BENH_NHAN_TOAN_CHUOI (postgres_fdw về S0)
- * để tra cứu / sinh mã bệnh nhân duy nhất toàn chuỗi.
+ * Bảng BENH_NHAN của chi nhánh đang chọn. Tra cứu bệnh nhân ở chi nhánh khác đi qua hàm tim_ma_benh_nhan ở S0
+ * ({@link ToanChuoiRepository#timMaBenhNhan}) — chi nhánh không đọc hồ sơ của chi nhánh khác.
  */
 @Repository
 public class BenhNhanRepository {
@@ -29,18 +29,6 @@ public class BenhNhanRepository {
             """;
 
     private final JdbcClient jdbc;
-
-    /** Tra cứu tiếp đón; %s = view toàn chuỗi hoặc bảng BENH_NHAN của chi nhánh. */
-    private static final String TRA_CUU = """
-            SELECT t.mabn, t.hoten, t.ngaysinh, t.gioitinh, t.cccd, t.sodienthoai, t.sothebhyt, t.diachi,
-                   EXISTS (SELECT 1 FROM benh_nhan b WHERE b.mabn = t.mabn) AS cotaichinhanh,
-                   (SELECT count(*) FROM chan_doan_dieu_tri cd JOIN lan_kham lk ON lk.maluot = cd.maluotkham
-                     WHERE lk.mabn = t.mabn AND cd.trangthai = :dangDieuTri) AS sodotdangdieutri
-            FROM %s t
-            WHERE t.cccd = :q OR t.sothebhyt = :q OR t.sodienthoai = :q OR t.mabn = :q
-               OR t.hoten ILIKE :like
-            ORDER BY t.mabn
-            LIMIT 20""";
 
     public BenhNhanRepository(JdbcClient jdbc) {
         this.jdbc = jdbc;
@@ -106,35 +94,26 @@ public class BenhNhanRepository {
         return jdbc.sql("DELETE FROM benh_nhan WHERE mabn = :maBN").param("maBN", maBN).update();
     }
 
-    /** Mã bệnh nhân của cả chuỗi (để sinh mã mới không trùng). Lỗi nếu S0 hoặc một chi nhánh đang tắt. */
-    public List<String> findAllMaBNToanChuoi() {
-        return jdbc.sql("SELECT mabn FROM tra_cuu_benh_nhan_toan_chuoi").query(String.class).list();
-    }
-
-    /** Mã bệnh nhân có hồ sơ ở chi nhánh — sinh mã mới khi không đọc được toàn chuỗi. */
+    /** Mã bệnh nhân có hồ sơ ở chi nhánh (để sinh mã mới). */
     public List<String> findAllMaBN() {
         return jdbc.sql("SELECT mabn FROM benh_nhan").query(String.class).list();
     }
 
-    /**
-     * Tra cứu toàn chuỗi khi tiếp đón: khớp đúng CCCD / thẻ BHYT / số điện thoại / mã, hoặc một phần họ tên.
-     * Lỗi nếu S0 hoặc một chi nhánh đang tắt.
-     */
-    public List<BenhNhanToanChuoiResponse> searchToanChuoi(String q) {
-        return traCuu("tra_cuu_benh_nhan_toan_chuoi", q);
-    }
-
-    /** Tra cứu như {@link #searchToanChuoi} nhưng chỉ trong BENH_NHAN của chi nhánh — không cần S0. */
-    public List<BenhNhanToanChuoiResponse> searchCucBo(String q) {
-        return traCuu("benh_nhan", q);
-    }
-
-    private List<BenhNhanToanChuoiResponse> traCuu(String from, String q) {
-        return jdbc.sql(TRA_CUU.formatted(from))
+    /** Tiếp đón: hồ sơ tại chi nhánh khớp đúng CCCD / thẻ BHYT / số điện thoại / mã, hoặc một phần họ tên. */
+    public List<BenhNhanTiepDonResponse> searchTiepDon(String q) {
+        return jdbc.sql("""
+                        SELECT b.mabn, b.hoten, b.ngaysinh, b.gioitinh, b.cccd, b.sodienthoai, b.sothebhyt, b.diachi,
+                               (SELECT count(*) FROM chan_doan_dieu_tri cd JOIN lan_kham lk ON lk.maluot = cd.maluotkham
+                                 WHERE lk.mabn = b.mabn AND cd.trangthai = :dangDieuTri) AS sodotdangdieutri
+                        FROM benh_nhan b
+                        WHERE b.cccd = :q OR b.sothebhyt = :q OR b.sodienthoai = :q OR b.mabn = :q
+                           OR b.hoten ILIKE :like
+                        ORDER BY b.mabn
+                        LIMIT 20""")
                 .param("q", q.trim())
                 .param("like", "%" + q.trim() + "%")
                 .param("dangDieuTri", ChanDoanDieuTri.DANG_DIEU_TRI)
-                .query(BenhNhanToanChuoiResponse.class)
+                .query(BenhNhanTiepDonResponse.class)
                 .list();
     }
 }

@@ -30,8 +30,13 @@ cd ../frontend && npm run build && cd ../backend && ./mvnw clean package
 # Docker: web (nginx :3000) + api (:8080) from ./docker-compose.yml, joined to the DB cluster's network
 cd scripts && ./docker_app.sh           # detects the DB network, builds, starts, waits for api health; --down / --logs / --ps
 docker compose up -d --build            # same, from this folder (DB_NETWORK=<name> if it isn't csdl_default)
-# Per-site deployment on one machine: 4 web+api pairs (HQ :3100, CN1–CN3 :3101–3103), simulate a site losing its network
+# 4-machine demo (one site per machine over Tailscale): set app.may-nay + app.dia-chi-may in application.yml, then
+./scripts/may.sh up && ./scripts/may.sh kiem-tra   # on every machine (Windows: .\scripts\may.ps1 up)
+./scripts/init_may.sh                               # once, from one macOS / Linux machine, after all 4 are up
+./scripts/gia_lap_4_may.sh up                       # rehearse the 4-machine setup on one machine (:3200–3203), mat-mang / co-mang / down
+# One-machine simulation: 4 web+api pairs (HQ :3100, CN1–CN3 :3101–3103), simulate a site losing its network
 cd scripts && ./phan_tan.sh up          # then: mat-mang cn1 / co-mang cn1 / trang-thai / down (always stop with down)
+cd scripts && ./init_db.sh --bo-sung    # apply scripts/sql/07_*, 08_* to a cluster initialized before them
 ```
 
 Backend tests don't need a running DB, because Hikari pools connect lazily. The frontend has no test suite.
@@ -45,15 +50,21 @@ DB connections use user `admin` / `password123`: S0 is `localhost:5430/ql_phongk
 - The frontend image (nginx) is described in `../frontend/CLAUDE.md`. A new backend path prefix besides `/api`, `/v3` and `/swagger-ui` must be added to both the nginx `location` regex and the vite proxy there.
 - In Docker, a stopped DB container's name stops resolving (`UnknownHostException`), and `@Transactional` methods then fail with `CannotCreateTransactionException`. `GlobalExceptionHandler` maps that to 503 `SITE_UNAVAILABLE`.
 
-## Deployment modes (`app.mode`, env `APP_MODE`)
+## Deployment modes
 
-One source, three deployments, chosen on the **backend** only. The frontend reads `GET /api/system/mode` at startup and renders the matching UI.
+One source, chosen on the **backend** only. The frontend reads `GET /api/system/mode` at startup and renders the matching UI.
 
-- `all` (default): one app for every site, the FE picks the branch with `X-Site`. Everything below assumes this unless it says otherwise.
-- `branch` + `APP_LOCAL_SITE=S1`: the app installed at one branch. `AppProperties` keeps only the hub and the local site (other entries in `app.sites` are dropped), branch data always goes to the local site, and an `X-Site` naming another branch gets 400 `WRONG_SITE`. `/api/master/**` and `/api/hq/**` still go to S0 when it is reachable (the assignment requires drug CRUD and full patient history at every branch); offline they fail with 503 like any S0 outage.
-- `hq`: the head-office app. Only `/api/master/**`, `/api/hq/**` and `/api/system/**`; other `/api/**` paths get 404 `NOT_SERVED`. It still declares S1–S3, but only for the status checks (`SiteHealthService`, `ToanChuoiService` naming the site that is down).
-- Per-site URL overrides work as env vars (`APP_SITES_S1_URL=…`); `docker-compose.phan-tan.yml` uses them to reach each site's DB over its own "LAN" network (`db-cn1`…). `scripts/phan_tan.sh` attaches the DB containers to those networks, which compose can't do because the DB team's compose owns them.
-- Anything a branch must keep doing offline has to avoid S0: new patient codes are branch-prefixed, and reception falls back to `GET /api/benh-nhan/cuc-bo`.
+- **4-machine demo (`app.may-nay`)**: each physical machine runs one site (`docker-compose.may.yml`: that site's DB + api + web), the machines reach each other over Tailscale. `may-nay: hq | cn1 | cn2 | cn3` in `application.yml` is the only per-machine setting; `app.dia-chi-may` holds the 4 Tailscale IPs. `AppProperties` derives everything from it: `hq` → `HQ`, `cnX` → `BRANCH` with the site whose `ma-cn` is CNX; the machine's own DB URL uses `app.db.host-cuc-bo` (compose sets `APP_DB_HOST_CUC_BO=db-cuc-bo`), the other machines use their IP and `app.db.cong-may`. The database name is kept from `app.sites`.
+- `APP_MODE` / `APP_LOCAL_SITE` (when `may-nay` is empty): `all` (default, one app for every site, the FE picks the branch with `X-Site`), `branch`, `hq` — used by the one-machine simulation `scripts/phan_tan.sh`. Everything below assumes `all` unless it says otherwise.
+- Access rules (`SiteFilter`):
+  - `BRANCH`: branch data always goes to the local site; an `X-Site` naming another branch gets 400 `WRONG_SITE`; `/api/master/**` and `/api/hq/**` get 403 `HQ_ONLY` (branches can't see HQ functions or other branches). `AppProperties` drops every site except the hub and the local one. The hub pool logs in as `app.db.tra-cuu-username` (`chi_nhanh_tra_cuu`), which can only execute the lookup functions below.
+  - `HQ`: S0 functions as usual; branch data is **read-only** for the branch in `X-Site` — GET/HEAD/OPTIONS only, anything else 403 `READ_ONLY`, and the branch pools are opened with `default_transaction_read_only=on` as a second barrier.
+- Patient privacy (`scripts/sql/07_bao_mat_*.sql`, applied after the DB team's scripts, no table changes): a branch never reads another branch's patient records. The branch view `TRA_CUU_BENH_NHAN_TOAN_CHUOI` and its FDW server are dropped; S0 has three `SECURITY DEFINER` functions the restricted role may execute, each returning codes only and one `ket_noi = false` row per unreachable branch: `tim_ma_benh_nhan` (exact CCCD / BHYT → patient code + branch), `benh_dang_dieu_tri_noi_khac` (BR4), `ma_benh_nhan_theo_tien_to` (code generation). Reception (`GET /api/benh-nhan/tiep-don`) searches the branch, then asks S0 only for a full identifier the branch doesn't have; a visit for a patient without a local record is 422 `NO_LOCAL_RECORD` (records are no longer copied). Subscriptions log in as role `nhan_ban` (SELECT on the 5 catalogs) instead of `admin`.
+- `scripts/sql/08_gioi_han_cho_fdw_hub.sql` sets `connect_timeout` / `tcp_user_timeout` / keepalives on S0's FDW servers. Without it, a branch that loses its network (Tailscale off) leaves a cached FDW connection that hangs chain reports and the lookup functions for minutes.
+- DB setup: `scripts/init_db.sh` (one machine, 4 containers) runs both supplements as step 8 (`--bo-sung` runs only that step; Windows: `scripts/bo_sung.ps1` after `CSDL/init_db.ps1`). `scripts/init_may.sh` initializes all 4 machines once, from any macOS / Linux machine, through a throwaway `psql` container, replacing the container host names in the DB team's SQL with the IPs. `scripts/may.sh` / `may.ps1` run and check one machine.
+- `docker-compose.may.yml` mounts `application.yml` as `/app/config/application.yml`. That external file outranks `application-docker.yml` inside the jar, so Docker-only overrides for this compose must be environment variables.
+- `app.may-nay` is the identity of a real demo machine and is baked into every image built from this repo. `docker-compose.yml` and `docker-compose.phan-tan.yml` set `APP_MAY_NAY=""` so they always run their own mode; `scripts/gia_lap_4_may.sh` (with `docker-compose.gia-lap.yml`) sets `may-nay` and the addresses per simulated machine through env vars, so it ignores the file too.
+- Anything a branch must keep doing offline has to avoid S0: patient codes are branch-prefixed and generated from the local table when S0 is down; reception falls back to the branch search with a warning.
 
 ## Architecture: how a request picks its database site
 
@@ -64,7 +75,7 @@ FE (header X-Site: S1|S2|S3) → SiteFilter → SiteContext (ThreadLocal) → Si
 - `site/SiteFilter` routes by path **before** any controller or `@Transactional` code runs:
   - `/api/master/**` (shared catalogs) and `/api/hq/**` (chain-wide reports) always go to the hub S0.
   - `/api/system/**` is not routed. `SystemController` uses `SiteRoutingDataSource.pools()` directly to check every site.
-  - Any other `/api/**` path needs a valid branch in `X-Site`; otherwise the filter returns 400 `MISSING_SITE` (mode `all`; see "Deployment modes" for `branch` / `hq`). Every response carries `X-Site-Used`.
+  - Any other `/api/**` path needs a valid branch in `X-Site`; otherwise the filter returns 400 `MISSING_SITE` (mode `all`; see "Deployment modes" for `BRANCH` / `HQ`). Every response carries `X-Site-Used`.
 - `SiteRoutingDataSource` has **no default site**: if no site is set, it throws instead of writing to the wrong DB. One pool per site is built from `app.sites` in `application.yml` (`config/AppProperties`; site keys are upper-cased; `ma-cn` must match `CHI_NHANH.MaCN`).
 - **Each transaction touches exactly one site** (there is no 2PC). Use `SiteContext.callOn(site, ...)` only *outside* a transaction, because the connection is bound when the transaction starts.
 - When a site is down, the app still starts (`initializationFailTimeout = -1`). Connection failures surface as SQLSTATE `08xxx` and map to 503 `SITE_UNAVAILABLE`.
@@ -73,7 +84,7 @@ FE (header X-Site: S1|S2|S3) → SiteFilter → SiteContext (ThreadLocal) → Si
 
 - **Branch sites (S1–S3)** each hold 21 BCNF tables (`../../CSDL/01_init_schema_branch.sql`) with that branch's own data (horizontal fragmentation). Examples: `NHAN_VIEN` is the ISA parent of `BAC_SI` / `Y_TA`, the multi-valued `NV_SODIENTHOAI`, and `LUOT_KHAM_CHUA` with `LoaiLuot` = `KHAM`/`CHUA`. Branches have no triggers and no reporting views, so business rules (BR2, BR3, BR4, BR6, BR11) must be enforced in the app, and branch reports must be written as explicit joins.
 - **Hub S0** holds 5 master tables: `CHI_NHANH`, `LUONG_CO_SO`, `BENH`, `THUOC`, `DICH_VU`. **Logical Replication** pushes them to the branches within about 1–2 s. Write master data **only at S0** (through `/api/master/**`). Branches read their replica copies.
-- S0 also exposes **global views over `postgres_fdw`** with the same names as the branch tables (`KE_DON`, `LUOT_KHAM_CHUA`, `BENH_NHAN`, …), plus `V_CHI_PHI_LUOT` and `V_TIEN_TRINH_DOT`. That is how chain-wide reads work. Each branch has `TRA_CUU_BENH_NHAN_TOAN_CHUOI` for cross-branch patient lookup.
+- S0 also exposes **global views over `postgres_fdw`** with the same names as the branch tables (`KE_DON`, `LUOT_KHAM_CHUA`, `BENH_NHAN`, …), plus `V_CHI_PHI_LUOT` and `V_TIEN_TRINH_DOT`. That is how chain-wide reads work. The DB team's `TRA_CUU_BENH_NHAN_TOAN_CHUOI` view at each branch is dropped by `scripts/sql/07_bao_mat_chi_nhanh.sql`; cross-branch lookup goes through the S0 functions (see "Deployment modes").
 - Branches don't enforce FKs on replicated rows. Before deleting master data at S0, check its usage through the S0 global views (see `ThuocService.delete` → `ThuocRepository.countKeDonByThuoc`). If a branch is down, refuse the delete.
 - Branches can't be added, deleted or renamed, because the FDW setup and global views are fixed to 3 branches.
 - Take table and column names from `../../CSDL/01_init_schema_branch.sql` / `01_init_schema_hub.sql`, **not** from `../../CSDL/thiet-ke-phan-tan.md`, which describes an older global schema. Identifiers are unquoted, so in SQL they're lowercase (`nhan_vien.manv`).
@@ -96,8 +107,8 @@ The full rules are in `.claude/skills/conventions/SKILL.md`. Follow that file wh
 - Visits (`LuotKhamService`, `LuotChuaService`, `ChiTietLuotService`, `LuotService`):
   - Branches have no triggers, so the app enforces BR1–BR4, BR6, BR7, BR10–BR13 in the same transaction as the writes, including the ISA rule that each `LUOT_KHAM_CHUA` row has exactly one `LAN_KHAM` or `LAN_CHUA`.
   - Codes: visits use `Codes.luotPrefix` → `K-{MaKhoa}-{MaBS}-yyMMdd-NNN` / `C-…`; episodes use `CDDT-{MaCN}-NNN`.
-  - A patient without a record at the branch is copied from the S0 `BENH_NHAN` view, keeping the same code.
-  - BR4 is checked chain-wide via S0. If S0 is down, it falls back to the local check and returns a warning in `canhBao`.
+  - The patient must have a record at the branch (422 `NO_LOCAL_RECORD` otherwise); records of other branches are never copied.
+  - BR4 is checked chain-wide via the S0 function `benh_dang_dieu_tri_noi_khac` (the message names the disease, not the branch). If S0 or a branch is down, it falls back to the local check and returns a warning in `canhBao`.
   - Deleting a visit is allowed only within the current month, and only for the last treatment of an episode or for an exam whose episodes have no treatments.
 - Path prefixes: `/api/...` for branch data, `/api/master/...` for S0 catalogs, `/api/hq/...` for chain-wide reports. Branch reports live under `/api/bao-cao/...`.
 - Errors:
@@ -106,13 +117,13 @@ The full rules are in `.claude/skills/conventions/SKILL.md`. Follow that file wh
 - Helpers in `util/Codes`:
   - `blankToNull`: normalize optional strings with it.
   - `next(prefix, existing, width)`: auto-generates IDs such as `BS-CN1-02`, `YT-CN1-03`, `TB-CN1-02`, `CN1-K03`, `B05`, `DV05` and `T05`.
-  - New patient IDs are `BN-{MaCN}-NNNN` (`BN-CN1-0001`): only that branch issues its prefix, so they are unique chain-wide and can be generated offline. The next number comes from `TRA_CUU_BENH_NHAN_TOAN_CHUOI` when it is reachable (it also sees codes copied to other branches and later deleted here) and from the local `BENH_NHAN` otherwise. Older codes (`BN01`, `BN000001` in the CSV set) stay as they are.
+  - New patient IDs are `BN-{MaCN}-NNNN` (`BN-CN1-0001`): only that branch issues its prefix, so they are unique chain-wide and can be generated offline. The next number comes from the local `BENH_NHAN` plus, when S0 is reachable, `ma_benh_nhan_theo_tien_to` (codes with that prefix registered at other branches and later deleted here). Older codes (`BN01`, `BN000001` in the CSV set) stay as they are.
 - Deletes return `DeleteResponse` HARD or SOFT (BR9). A doctor, nurse or device with history gets its status set to "Ngừng hoạt động". Patients with visits, departments with staff or visits, and catalog rows used at any branch are refused with 409 `IN_USE` (usage is checked through the S0 global views; if a branch is down, the delete is refused).
 - Status strings are constants on the entities: `ChanDoanDieuTri.DANG_DIEU_TRI` / `DA_KHOI` / `NGUNG_DIEU_TRI`, `ThietBi.HOAT_DONG_TOT` / `NGUNG_HOAT_DONG` and `DichVu.LOAI_KHAM_BENH`.
 - `LUONG_CO_SO` is history. Levels with `NgayApDung` ≤ today can't be edited or deleted. F3 salary is computed live from visit data in `LuongRepository`. **No salary table exists, so salaries can't be locked ("chốt lương").** Bonuses are 1,000,000 ₫ per "Đã khỏi" episode ending in the month (credited to the doctor of the opening visit) and 200,000 ₫ per `HO_TRO` row in the month.
 - Tests:
   - Service tests use Mockito; controller tests use `@WebMvcTest` + `@EnableConfigurationProperties(AppProperties.class)` + `@MockitoBean`. Test names follow `method_condition_expected`.
-  - 179 tests, no DB needed. Service tests that use `TransactionTemplate` take the mock transaction manager from `LuotFixtures.txManager()`. `EntitySchemaTest` skips itself when the cluster is down.
+  - 192 tests, no DB needed. Service tests that use `TransactionTemplate` take the mock transaction manager from `LuotFixtures.txManager()`. `EntitySchemaTest` skips itself when the cluster is down.
   - Run with `-Duser.timezone=Asia/Ho_Chi_Minh` if the JVM default zone is `Asia/Saigon`, which PostgreSQL rejects.
 - `config/WebConfig` serves the built SPA from `classpath:/static/` with an `index.html` fallback for client routes.
 

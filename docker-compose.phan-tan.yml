@@ -35,6 +35,7 @@ services:
     <<: *api
     container_name: antam_hq_api
     environment:
+      APP_MAY_NAY: ""   # giả lập dùng APP_MODE, bỏ qua app.may-nay trong application.yml
       APP_MODE: hq
       APP_SITES_S0_URL: jdbc:postgresql://db-hq:5432/ql_phongkham_hub
       JAVA_TOOL_OPTIONS: *java
@@ -52,6 +53,7 @@ services:
     <<: *api
     container_name: antam_cn1_api
     environment:
+      APP_MAY_NAY: ""   # giả lập dùng APP_MODE, bỏ qua app.may-nay trong application.yml
       APP_MODE: branch
       APP_LOCAL_SITE: S1
       APP_SITES_S1_URL: jdbc:postgresql://db-cn1:5432/ql_phongkham_cn1
@@ -70,6 +72,7 @@ services:
     <<: *api
     container_name: antam_cn2_api
     environment:
+      APP_MAY_NAY: ""   # giả lập dùng APP_MODE, bỏ qua app.may-nay trong application.yml
       APP_MODE: branch
       APP_LOCAL_SITE: S2
       APP_SITES_S2_URL: jdbc:postgresql://db-cn2:5432/ql_phongkham_cn2
@@ -88,6 +91,7 @@ services:
     <<: *api
     container_name: antam_cn3_api
     environment:
+      APP_MAY_NAY: ""   # giả lập dùng APP_MODE, bỏ qua app.may-nay trong application.yml
       APP_MODE: branch
       APP_LOCAL_SITE: S3
       APP_SITES_S3_URL: jdbc:postgresql://db-cn3:5432/ql_phongkham_cn3

@@ -6,14 +6,17 @@
 # Cách dùng:
 #   ./init_db.sh            Khởi tạo khi 4 container đã chạy (docker compose up -d)
 #   ./init_db.sh --reset    Xoá sạch volume, dựng lại 4 container rồi khởi tạo
+#   ./init_db.sh --bo-sung  Chỉ chạy bước 8 (scripts/sql/07_*, 08_*) trên cụm đã khởi tạo
 #
 # Mặc định đọc các file .sql trong thư mục CSDL (ngang hàng với source_code).
 # Đổi vị trí bằng biến môi trường:  CSDL_DIR=/duong/dan/CSDL ./init_db.sh
-# Các bước và thứ tự file giống hệt init_db.ps1 của nhóm DB.
+# Các bước và thứ tự file giống hệt init_db.ps1 của nhóm DB, thêm bước 8 — bổ sung của nhóm ứng dụng, ứng dụng cần:
+# scripts/sql/07_* (role + hàm tra cứu ở S0, gỡ view tra cứu toàn chuỗi ở chi nhánh) và 08_* (giới hạn chờ FDW ở S0).
 # =============================================================================
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SQL_DIR="$SCRIPT_DIR/sql"
 CSDL_DIR="${CSDL_DIR:-$SCRIPT_DIR/../../../CSDL}"
 CSDL_DIR="$(cd "$CSDL_DIR" 2>/dev/null && pwd)" || { echo "Không tìm thấy thư mục CSDL. Đặt CSDL_DIR=... rồi chạy lại."; exit 1; }
 DB_USER=admin
@@ -34,10 +37,10 @@ ok()   { printf ' %s-> %s%s\n' "$G" "$1" "$N"; }
 bad()  { printf ' %s-> %s%s\n' "$R" "$1" "$N"; }
 
 ERRORS=0
-# run_sql <container> <file.sql> — giống "Get-Content file | docker exec -i ... psql" trong bản .ps1,
-# nhưng in ra dòng ERROR (nếu có) thay vì để trôi mất.
+# run_sql <container> <file.sql> [thư mục] — giống "Get-Content file | docker exec -i ... psql" trong bản .ps1,
+# nhưng in ra dòng ERROR (nếu có) thay vì để trôi mất. Thư mục mặc định: CSDL/.
 run_sql() {
-  local c="$1" f="$CSDL_DIR/$2" err
+  local c="$1" f="${3:-$CSDL_DIR}/$2" err
   if [ ! -f "$f" ]; then bad "Thiếu file $2"; ERRORS=$((ERRORS + 1)); return; fi
   err="$(docker exec -i "$c" psql -q -U "$DB_USER" -d "$(db_of "$c")" -v ON_ERROR_STOP=0 < "$f" 2>&1 >/dev/null | grep -E 'ERROR|FATAL' || true)"
   if [ -n "$err" ]; then
@@ -46,6 +49,14 @@ run_sql() {
 }
 # q <container> <sql> — chạy 1 câu SELECT, trả về giá trị
 q() { docker exec -i "$1" psql -U "$DB_USER" -d "$(db_of "$1")" -tAc "$2" 2>/dev/null | tr -d '[:space:]'; }
+# Bước 8 (bổ sung của nhóm ứng dụng): bảo mật thông tin bệnh nhân + giới hạn chờ FDW
+bo_sung() {
+  step "[Bước 8] Bổ sung: role + hàm tra cứu ở S0, gỡ view tra cứu toàn chuỗi ở chi nhánh, giới hạn chờ FDW..."
+  run_sql "$S0" 07_bao_mat_hub.sql "$SQL_DIR"
+  run_sql "$S0" 08_gioi_han_cho_fdw_hub.sql "$SQL_DIR"
+  for c in "$S1" "$S2" "$S3"; do run_sql "$c" 07_bao_mat_chi_nhanh.sql "$SQL_DIR"; done
+  ok "Xong"
+}
 
 printf '%s==========================================================%s\n' "$C" "$N"
 printf '%sKHOI TAO HE CSDL PHAN TAN (KEM LOGICAL REPLICATION REALTIME)%s\n' "$C" "$N"
@@ -55,6 +66,11 @@ echo "Thư mục CSDL: $CSDL_DIR"
 # --- Kiểm tra Docker -----------------------------------------------------------
 command -v docker >/dev/null 2>&1 || { bad "Không có lệnh docker — hãy cài / mở Docker Desktop."; exit 1; }
 docker info >/dev/null 2>&1 || { bad "Docker Desktop chưa chạy — mở Docker Desktop rồi chạy lại."; exit 1; }
+
+if [ "${1:-}" = "--bo-sung" ]; then
+  bo_sung
+  [ "$ERRORS" -eq 0 ]; exit $?
+fi
 
 if [ "${1:-}" = "--reset" ]; then
   step "[Reset] Xoá container + volume cũ, dựng lại 4 container..."
@@ -120,7 +136,10 @@ step "[Bước 7] Thiết lập View tra cứu bệnh nhân toàn chuỗi tại 
 for c in "$S1" "$S2" "$S3"; do run_sql "$c" 06_setup_tra_cuu_benh_nhan_branch.sql; done
 ok "Xong"
 
-# --- 8. Kiểm tra nhanh (không có trong bản .ps1) ---------------------------------
+# --- 8. Bổ sung của nhóm ứng dụng (không có trong bản .ps1) ----------------------
+bo_sung
+
+# --- Kiểm tra nhanh (không có trong bản .ps1) ------------------------------------
 step "[Kiểm tra] Đồng bộ danh mục và view toàn cục..."
 thuoc_s0="$(q "$S0" 'SELECT COUNT(*) FROM thuoc')"
 sum=0

@@ -1,36 +1,43 @@
 package vn.antam.clinic.service;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import vn.antam.clinic.config.AppProperties;
 import vn.antam.clinic.dto.request.BenhNhanRequest;
 import vn.antam.clinic.dto.response.BenhNhanResponse;
-import vn.antam.clinic.dto.response.BenhNhanToanChuoiResponse;
+import vn.antam.clinic.dto.response.BenhNhanTiepDonResponse;
+import vn.antam.clinic.dto.response.ChiMucBenhNhanResponse;
 import vn.antam.clinic.dto.response.DeleteResponse;
+import vn.antam.clinic.dto.response.MaToanChuoiResponse;
+import vn.antam.clinic.dto.response.TiepDonResponse;
 import vn.antam.clinic.entity.BenhNhan;
 import vn.antam.clinic.exception.BusinessException;
 import vn.antam.clinic.repository.BenhNhanRepository;
+import vn.antam.clinic.repository.ToanChuoiRepository;
 import vn.antam.clinic.site.SiteContext;
 import vn.antam.clinic.util.Codes;
 
 /**
- * Bệnh nhân của chi nhánh đang chọn. Mỗi chi nhánh giữ hồ sơ riêng (phân mảnh ngang), nhưng mã bệnh nhân là định danh
- * chung toàn chuỗi: bệnh nhân cũ đến chi nhánh mới thì tra cứu toàn chuỗi rồi dùng lại mã cũ. Mã mới mang mã chi nhánh
- * cấp nó ({@code BN-CN1-0001}) nên chi nhánh vẫn thêm được bệnh nhân khi mất kết nối Trung tâm.
+ * Bệnh nhân của chi nhánh đang chọn. Mỗi chi nhánh giữ hồ sơ riêng (phân mảnh ngang) và không đọc được hồ sơ của
+ * chi nhánh khác; mã bệnh nhân là định danh chung toàn chuỗi: bệnh nhân cũ đến chi nhánh mới thì tiếp đón nhập đúng số
+ * CCCD / thẻ BHYT, hàm tim_ma_benh_nhan ở S0 chỉ trả mã cũ, chi nhánh lập hồ sơ của mình với mã đó từ giấy tờ bệnh nhân
+ * đưa. Mã mới mang mã chi nhánh cấp nó ({@code BN-CN1-0001}) nên vẫn thêm được bệnh nhân khi mất kết nối Trung tâm.
  */
 @Service
 public class BenhNhanService {
 
     private final BenhNhanRepository repo;
+    private final ToanChuoiRepository toanChuoiRepo;
     private final AppProperties props;
 
-    public BenhNhanService(BenhNhanRepository repo, AppProperties props) {
+    public BenhNhanService(BenhNhanRepository repo, ToanChuoiRepository toanChuoiRepo, AppProperties props) {
         this.repo = repo;
+        this.toanChuoiRepo = toanChuoiRepo;
         this.props = props;
     }
 
@@ -44,32 +51,41 @@ public class BenhNhanService {
         return repo.findById(maBN).orElseThrow(() -> BusinessException.notFound("bệnh nhân", maBN));
     }
 
-    /** Đọc qua postgres_fdw — không chạy trong transaction để lỗi FDW không làm hỏng transaction. */
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<BenhNhanToanChuoiResponse> searchToanChuoi(String q) {
+    /**
+     * Tiếp đón: tìm hồ sơ tại chi nhánh; nếu từ khoá là số CCCD / thẻ BHYT đầy đủ mà chi nhánh chưa có thì hỏi S0 xem số đó đã
+     * có mã ở chi nhánh nào (chỉ mã, không thông tin cá nhân). Không gắn @Transactional: phần gọi S0 dùng
+     * {@link SiteContext#callOn}, mất kết nối thì vẫn trả kết quả tại chi nhánh kèm cảnh báo.
+     */
+    public TiepDonResponse tiepDon(String q) {
         if (q == null || q.isBlank()) {
-            return List.of();
+            return new TiepDonResponse(List.of(), List.of(), false, null);
         }
+        String so = q.trim();
+        List<BenhNhanTiepDonResponse> taiChiNhanh = repo.searchTiepDon(so);
+        boolean laSoDinhDanh = so.length() >= 9 && so.chars().noneMatch(Character::isWhitespace);
+        boolean daCoTaiDay = taiChiNhanh.stream()
+                .anyMatch(b -> so.equalsIgnoreCase(b.cccd()) || so.equalsIgnoreCase(b.soTheBHYT()));
+        if (!laSoDinhDanh || daCoTaiDay) {
+            return new TiepDonResponse(taiChiNhanh, List.of(), false, null);
+        }
+        String maCn = maCnDangChon();
+        List<ChiMucBenhNhanResponse> rows;
         try {
-            return repo.searchToanChuoi(q);
+            rows = SiteContext.callOn(props.hubSite(), () -> toanChuoiRepo.timMaBenhNhan(so));
         } catch (DataAccessException e) {
-            throw chainUnavailable("Không tra cứu được toàn chuỗi");
+            return new TiepDonResponse(taiChiNhanh, List.of(), false,
+                    "Không kết nối được Trung tâm — chỉ tra được hồ sơ tại chi nhánh này.");
         }
-    }
-
-    /** Tra cứu tiếp đón chỉ trong chi nhánh — frontend dùng khi không tra cứu được toàn chuỗi (mất kết nối). */
-    @Transactional(readOnly = true)
-    public List<BenhNhanToanChuoiResponse> searchCucBo(String q) {
-        if (q == null || q.isBlank()) {
-            return List.of();
-        }
-        return repo.searchCucBo(q);
+        List<ChiMucBenhNhanResponse> noiKhac = rows.stream().filter(r -> r.ketNoi() && !maCn.equals(r.maCn())).toList();
+        List<String> matKetNoi = rows.stream().filter(r -> !r.ketNoi()).map(ChiMucBenhNhanResponse::maCn).toList();
+        String canhBao = matKetNoi.isEmpty() ? null
+                : "Chi nhánh " + String.join(", ", matKetNoi) + " đang mất kết nối — hồ sơ ở đó (nếu có) chưa tra được.";
+        return new TiepDonResponse(taiChiNhanh, noiKhac, true, canhBao);
     }
 
     /**
-     * Thêm bệnh nhân. Không gắn @Transactional nào, kể cả NOT_SUPPORTED: sinh mã đọc view toàn chuỗi qua postgres_fdw, lỗi
-     * kết nối FDW mang SQLSTATE 08001 nên Hikari đóng luôn kết nối tới chi nhánh; nếu cả phương thức giữ một kết nối thì
-     * câu đọc dự phòng ở bảng cục bộ sẽ lỗi "Connection is closed". Phần ghi chỉ là một câu INSERT nên tự nó đã nguyên tử.
+     * Thêm bệnh nhân. Không gắn @Transactional: sinh mã đọc S0 bằng {@link SiteContext#callOn} (chỉ có tác dụng ngoài
+     * transaction). Phần ghi chỉ là một câu INSERT nên tự nó đã nguyên tử.
      */
     public BenhNhanResponse create(BenhNhanRequest r) {
         String maBN = Codes.blankToNull(r.maBN());
@@ -107,24 +123,26 @@ public class BenhNhanService {
 
     /**
      * Mã kế tiếp dạng BN-{MaCN}-nnnn. Chỉ chi nhánh này cấp mã mang tiền tố của nó, nên không trùng chi nhánh khác kể cả khi
-     * mất kết nối. Có mạng thì tính trên cả chuỗi (tính cả mã đã chép sang chi nhánh khác rồi bị xoá ở đây), mất mạng thì
-     * tính trên bảng cục bộ.
+     * mất kết nối. Có mạng thì tính thêm các mã cùng tiền tố đang ở chi nhánh khác (bệnh nhân đã lập hồ sơ ở đó rồi hồ sơ ở
+     * đây bị xoá); mất mạng thì chỉ tính trên bảng cục bộ.
      */
     private String nextMaBN() {
-        String site = SiteContext.get();
-        String prefix = "BN-" + props.site(site).map(AppProperties.Site::maCn).orElse(site) + "-";
-        List<String> existing;
+        String prefix = "BN-" + maCnDangChon() + "-";
+        List<String> existing = new ArrayList<>(repo.findAllMaBN());
         try {
-            existing = repo.findAllMaBNToanChuoi();
+            SiteContext.callOn(props.hubSite(), () -> toanChuoiRepo.maBenhNhanTheoTienTo(prefix)).stream()
+                    .filter(MaToanChuoiResponse::ketNoi)
+                    .map(MaToanChuoiResponse::ma)
+                    .forEach(existing::add);
         } catch (DataAccessException e) {
-            existing = repo.findAllMaBN();
+            // mất kết nối Trung tâm: mã của chi nhánh này vẫn chỉ do chi nhánh này cấp
         }
         return Codes.next(prefix, existing, 4);
     }
 
-    private static BusinessException chainUnavailable(String message) {
-        return new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "CHAIN_UNAVAILABLE",
-                message + " (trạm trung tâm S0 hoặc một chi nhánh đang tắt).");
+    private String maCnDangChon() {
+        String site = SiteContext.get();
+        return props.site(site).map(AppProperties.Site::maCn).orElse(site);
     }
 
     private static BenhNhan toEntity(String maBN, BenhNhanRequest r) {

@@ -60,6 +60,10 @@ public class SiteHealthService {
                 database = rs.getString(1);
             }
             long latency = (System.nanoTime() - start) / 1_000_000;
+            // Bản chi nhánh nối S0 bằng role chỉ chạy được hàm tra cứu — không đếm được bảng nào, chỉ báo kết nối
+            if (hub && props.mode() == AppProperties.Mode.BRANCH) {
+                return new SiteStatusResponse(id, role, site.name(), site.maCn(), site.url(), true, latency, database, null, null);
+            }
             Map<String, Long> counts = new LinkedHashMap<>();
             String error = null;
             List<String> labels = hub ? HUB_LABELS : BRANCH_LABELS;

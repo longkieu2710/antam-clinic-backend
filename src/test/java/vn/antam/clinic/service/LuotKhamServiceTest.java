@@ -8,7 +8,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -31,9 +30,9 @@ import org.springframework.http.HttpStatus;
 import vn.antam.clinic.dto.request.ChanDoanRequest;
 import vn.antam.clinic.dto.request.LuotKhamRequest;
 import vn.antam.clinic.dto.response.KhoaResponse;
+import vn.antam.clinic.dto.response.MaToanChuoiResponse;
 import vn.antam.clinic.dto.response.TaoLuotResponse;
 import vn.antam.clinic.entity.Benh;
-import vn.antam.clinic.entity.BenhNhan;
 import vn.antam.clinic.entity.ChanDoanDieuTri;
 import vn.antam.clinic.entity.LanKham;
 import vn.antam.clinic.entity.LuotKhamChua;
@@ -78,23 +77,29 @@ class LuotKhamServiceTest {
     }
 
     @Test
-    void create_patientFromOtherBranch_copiesRecordThenSavesVisitAndOpensDot() {
-        BenhNhan bn = new BenhNhan("BN02", "Trần Thị Bình", null, "Nữ", "001095006666", null, null, null, null, null);
+    void create_patientWithoutLocalRecord_throwsNoLocalRecordWithoutReadingOtherBranches() {
         when(benhNhanRepo.exists("BN02")).thenReturn(false);
-        when(toanChuoiRepo.findBenhNhan("BN02")).thenReturn(Optional.of(bn));
-        when(dotRepo.findDangDieuTri("BN02")).thenReturn(List.of(
-                LuotFixtures.dotDang("CDDT-CN2-001", "B03", "CN2", THOI_GIAN.minusDays(5))));
+
+        assertThatThrownBy(() -> service.create(request("BN02", List.of(new ChanDoanRequest("B01", "Nặng", 3)), null)))
+                .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo("NO_LOCAL_RECORD"));
+        verifyNoInteractions(toanChuoiRepo);
+        verify(luotRepo, never()).insert(any(LuotKhamChua.class));
+    }
+
+    @Test
+    void create_newDiagnosis_savesVisitAndOpensDot() {
+        when(benhNhanRepo.exists("BN01")).thenReturn(true);
+        when(toanChuoiRepo.benhDangDieuTriNoiKhac("BN01", List.of("B01"), "CN1")).thenReturn(List.of());
         stubDoctorAndCatalog();
         when(luotRepo.findMaLuotByPrefix("K-CN1-TMH-BS-CN1-01-261023-")).thenReturn(List.of("K-CN1-TMH-BS-CN1-01-261023-001"));
         when(dotRepo.findAllMaCDDT()).thenReturn(List.of("CDDT-CN1-001", "CDDT-CN1-009"));
 
-        TaoLuotResponse result = service.create(request("BN02", List.of(new ChanDoanRequest("B01", "Nặng", 3)), null));
+        TaoLuotResponse result = service.create(request("BN01", List.of(new ChanDoanRequest("B01", "Nặng", 3)), null));
 
         assertThat(result.maLuot()).isEqualTo("K-CN1-TMH-BS-CN1-01-261023-002");
         assertThat(result.maCDDT()).containsExactly("CDDT-CN1-010");
-        assertThat(result.daChepBenhNhan()).isTrue();
         assertThat(result.canhBao()).isEmpty();
-        verify(benhNhanRepo).insert(bn);
+        verify(benhNhanRepo, never()).insert(any());
         ArgumentCaptor<ChanDoanDieuTri> dot = ArgumentCaptor.forClass(ChanDoanDieuTri.class);
         verify(dotRepo).insert(dot.capture());
         assertThat(dot.getValue().trangThai()).isEqualTo(ChanDoanDieuTri.DANG_DIEU_TRI);
@@ -102,15 +107,16 @@ class LuotKhamServiceTest {
     }
 
     @Test
-    void create_openDotOfSameDiseaseAtOtherBranch_throwsBR4WithoutWriting() {
+    void create_openDotOfSameDiseaseAtOtherBranch_throwsBR4WithoutNamingBranch() {
         when(benhNhanRepo.exists("BN02")).thenReturn(true);
-        when(dotRepo.findDangDieuTri("BN02")).thenReturn(List.of(
-                LuotFixtures.dotDang("CDDT-CN2-001", "B03", "CN2", THOI_GIAN.minusDays(5))));
+        when(toanChuoiRepo.benhDangDieuTriNoiKhac("BN02", List.of("B03"), "CN1"))
+                .thenReturn(List.of(new MaToanChuoiResponse("B03", true)));
+        when(benhRepo.search(null)).thenReturn(List.of(new Benh("B03", "Sâu răng tủy", "K02.5", null)));
 
         assertThatThrownBy(() -> service.create(request("BN02", List.of(new ChanDoanRequest("B03", "Nhẹ", 1)), null)))
                 .isInstanceOfSatisfying(BusinessException.class, e -> {
                     assertThat(e.getCode()).isEqualTo("BR4");
-                    assertThat(e.getMessage()).contains("CN2");
+                    assertThat(e.getMessage()).contains("Sâu răng tủy").doesNotContain("CN2").doesNotContain("CDDT");
                 });
         verify(luotRepo, never()).insert(any(LuotKhamChua.class));
     }
@@ -118,9 +124,9 @@ class LuotKhamServiceTest {
     @Test
     void create_hubDown_warnsAndStillChecksBR4Locally() {
         when(benhNhanRepo.exists("BN01")).thenReturn(true);
-        when(dotRepo.findDangDieuTri("BN01"))
-                .thenThrow(new DataAccessResourceFailureException("S0 tắt"))
-                .thenReturn(List.of());
+        when(toanChuoiRepo.benhDangDieuTriNoiKhac(anyString(), any(), anyString()))
+                .thenThrow(new DataAccessResourceFailureException("S0 tắt"));
+        when(dotRepo.findDangDieuTri("BN01")).thenReturn(List.of());
         stubDoctorAndCatalog();
         when(luotRepo.findMaLuotByPrefix(anyString())).thenReturn(List.of());
         when(dotRepo.findAllMaCDDT()).thenReturn(List.of());
@@ -128,7 +134,21 @@ class LuotKhamServiceTest {
         TaoLuotResponse result = service.create(request("BN01", List.of(new ChanDoanRequest("B01", "Nhẹ", 1)), null));
 
         assertThat(result.canhBao()).singleElement().asString().contains("BR4");
-        verify(dotRepo, times(2)).findDangDieuTri("BN01");
+        verify(dotRepo).findDangDieuTri("BN01");
+    }
+
+    @Test
+    void create_otherBranchUnreachable_warnsButSaves() {
+        when(benhNhanRepo.exists("BN01")).thenReturn(true);
+        when(toanChuoiRepo.benhDangDieuTriNoiKhac("BN01", List.of("B01"), "CN1"))
+                .thenReturn(List.of(new MaToanChuoiResponse(null, false)));
+        stubDoctorAndCatalog();
+        when(luotRepo.findMaLuotByPrefix(anyString())).thenReturn(List.of());
+        when(dotRepo.findAllMaCDDT()).thenReturn(List.of());
+
+        TaoLuotResponse result = service.create(request("BN01", List.of(new ChanDoanRequest("B01", "Nhẹ", 1)), null));
+
+        assertThat(result.canhBao()).singleElement().asString().contains("mất kết nối");
     }
 
     @Test

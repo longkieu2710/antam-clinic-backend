@@ -24,9 +24,13 @@ thì theo file này**.
   sửa bảng — không Flyway, không `ddl-auto`.
 - Chọn trạm theo request: `SiteFilter` đặt `SiteContext` → `SiteRoutingDataSource` chọn pool.
   `/api/master/**`, `/api/hq/**` → S0; `/api/system/**` không định tuyến; `/api/**` còn lại → header `X-Site` (S1..S3).
-- Bản triển khai `app.mode` (`APP_MODE`): `all` như trên · `branch` (`APP_LOCAL_SITE`) luôn dùng trạm cục bộ, chỉ mở pool
-  S0 + trạm đó · `hq` chỉ phục vụ `/api/master/**`, `/api/hq/**`. Chức năng chi nhánh phải chạy được khi mất S0 thì không
-  được phụ thuộc S0 (mẫu: `BenhNhanService.nextMaBN`, `GET /api/benh-nhan/cuc-bo`).
+- Bản triển khai: `app.may-nay` (demo 4 máy: hq | cn1..cn3) hoặc `app.mode` (`APP_MODE`): `all` như trên · `branch` chỉ
+  dữ liệu của trạm cục bộ, `/api/master/**` và `/api/hq/**` → 403 `HQ_ONLY`, pool S0 đăng nhập bằng role
+  `chi_nhanh_tra_cuu` (chỉ chạy được hàm tra cứu) · `hq` danh mục chung + báo cáo toàn chuỗi, dữ liệu chi nhánh chỉ GET
+  (ghi → 403 `READ_ONLY`).
+- Chi nhánh KHÔNG đọc hồ sơ của chi nhánh khác: tra cứu liên chi nhánh chỉ qua 3 hàm ở S0 trong
+  `scripts/sql/07_bao_mat_hub.sql` (trả mã, không trả thông tin cá nhân). Chức năng chi nhánh phải chạy được khi mất S0
+  thì không phụ thuộc S0 (mẫu: `BenhNhanService.nextMaBN`, `BenhNhanService.tiepDon`).
 
 ## Quy tắc bắt buộc
 
