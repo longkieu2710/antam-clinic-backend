@@ -18,9 +18,9 @@ app:
   #   hq        — máy Trung tâm: danh mục chung, báo cáo toàn chuỗi; chọn chi nhánh để XEM (không thêm / sửa / xoá)
   #   cn1..cn3  — máy chi nhánh: chỉ dữ liệu của chi nhánh đó, không vào chức năng Trung tâm
   #   (trống)   — chạy cả cụm 4 trạm trên 1 máy như lúc phát triển (dùng mode / local-site bên dưới)
-  may-nay: hq
+  may-nay:
   dia-chi-may:
-    hq: 172.20.10.11
+    hq:
     cn1:
     cn2:
     cn3:
