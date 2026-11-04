@@ -145,6 +145,6 @@ class BacSiServiceTest {
     private static BacSiResponse response(String maNV, long soLuot) {
         return new BacSiResponse(maNV, "Nguyễn Văn A", LocalDate.of(1985, 5, 20), "Nam", null, "Hà Nội",
                 new BigDecimal("2.34"), LocalDate.now(), "Đang làm việc", "K01", "Khoa Nội", "Nội tổng quát", "ThS",
-                "CCHN-001", List.of(), soLuot);
+                "CCHN-001", List.of(), soLuot, "CN1");
     }
 }

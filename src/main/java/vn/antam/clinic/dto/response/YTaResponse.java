@@ -4,7 +4,11 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
-/** Y tá = NHAN_VIEN (LoaiNV = 'YT') ⨝ Y_TA, kèm số điện thoại và số lượt đã hỗ trợ (HO_TRO). */
+/**
+ * Y tá = NHAN_VIEN (LoaiNV = 'YT') ⨝ Y_TA, kèm số điện thoại và số lượt đã hỗ trợ (HO_TRO).
+ *
+ * @param maCn chi nhánh của khoa — phân biệt khi Trung tâm xem toàn chuỗi
+ */
 public record YTaResponse(
         String maNV,
         String hoTen,
@@ -20,5 +24,6 @@ public record YTaResponse(
         String trinhDo,
         String soChungChiHanhNghe,
         List<String> soDienThoai,
-        long soLanHoTro) {
+        long soLanHoTro,
+        String maCn) {
 }

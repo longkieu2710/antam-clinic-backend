@@ -11,10 +11,14 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import vn.antam.clinic.dto.response.BacSiResponse;
 import vn.antam.clinic.dto.response.BenhNhanTomTatResponse;
 import vn.antam.clinic.dto.response.DoanhThuToanChuoiResponse;
 import vn.antam.clinic.dto.response.HoSoBenhNhanResponse;
+import vn.antam.clinic.dto.response.KhoaResponse;
+import vn.antam.clinic.dto.response.ThietBiResponse;
 import vn.antam.clinic.dto.response.ThongKeBenhToanChuoiResponse;
+import vn.antam.clinic.dto.response.YTaResponse;
 import vn.antam.clinic.service.ToanChuoiService;
 
 /** Báo cáo toàn chuỗi — /api/hq/** luôn chạy ở trạm trung tâm S0 (view toàn cục qua postgres_fdw). */
@@ -26,6 +30,27 @@ public class ToanChuoiController {
 
     public ToanChuoiController(ToanChuoiService service) {
         this.service = service;
+    }
+
+    /** Bác sĩ cả chuỗi (view toàn cục ở S0), mỗi dòng có mã chi nhánh. */
+    @GetMapping("/bac-si")
+    public List<BacSiResponse> bacSi(@RequestParam(required = false) String q, @RequestParam(required = false) String khoa) {
+        return service.bacSi(q, khoa);
+    }
+
+    @GetMapping("/y-ta")
+    public List<YTaResponse> yTa(@RequestParam(required = false) String q, @RequestParam(required = false) String khoa) {
+        return service.yTa(q, khoa);
+    }
+
+    @GetMapping("/khoa")
+    public List<KhoaResponse> khoa() {
+        return service.khoa();
+    }
+
+    @GetMapping("/thiet-bi")
+    public List<ThietBiResponse> thietBi(@RequestParam(required = false) String q) {
+        return service.thietBi(q);
     }
 
     @GetMapping("/benh-nhan")

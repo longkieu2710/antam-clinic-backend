@@ -16,8 +16,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import vn.antam.clinic.dto.request.BenhNhanRequest;
 import vn.antam.clinic.dto.response.BenhNhanResponse;
-import vn.antam.clinic.dto.response.BenhNhanToanChuoiResponse;
 import vn.antam.clinic.dto.response.DeleteResponse;
+import vn.antam.clinic.dto.response.TiepDonResponse;
 import vn.antam.clinic.service.BenhNhanService;
 
 /** Bệnh nhân của chi nhánh đang chọn (header X-Site), kèm tra cứu toàn chuỗi. */
@@ -36,10 +36,13 @@ public class BenhNhanController {
         return service.search(q);
     }
 
-    /** Tra cứu theo CCCD / thẻ BHYT / số điện thoại / mã (khớp đúng) hoặc họ tên trên cả 3 chi nhánh. */
-    @GetMapping("/toan-chuoi")
-    public List<BenhNhanToanChuoiResponse> searchToanChuoi(@RequestParam(required = false) String q) {
-        return service.searchToanChuoi(q);
+    /**
+     * Tiếp đón: hồ sơ tại chi nhánh khớp mã, họ tên, CCCD, thẻ BHYT, số điện thoại; với số CCCD / thẻ BHYT đầy đủ chưa có ở
+     * đây thì thêm mã bệnh nhân + chi nhánh đã lập hồ sơ (không kèm thông tin cá nhân).
+     */
+    @GetMapping("/tiep-don")
+    public TiepDonResponse tiepDon(@RequestParam(required = false) String q) {
+        return service.tiepDon(q);
     }
 
     @GetMapping("/{maBN}")

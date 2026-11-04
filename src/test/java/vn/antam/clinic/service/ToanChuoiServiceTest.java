@@ -38,13 +38,18 @@ class ToanChuoiServiceTest {
     @Mock HoSoBenhNhanService hoSoService;
     @Mock DoanhThuService doanhThuService;
     @Mock ThongKeBenhService thongKeBenhService;
+    @Mock BacSiService bacSiService;
+    @Mock YTaService yTaService;
+    @Mock KhoaService khoaService;
+    @Mock ThietBiService thietBiService;
     @Mock SiteHealthService health;
 
     ToanChuoiService service;
 
     @BeforeEach
     void setUp() {
-        service = new ToanChuoiService(repo, chiNhanhRepo, hoSoService, doanhThuService, thongKeBenhService, health);
+        service = new ToanChuoiService(repo, chiNhanhRepo, hoSoService, doanhThuService, thongKeBenhService, bacSiService,
+                yTaService, khoaService, thietBiService, health);
     }
 
     @Test

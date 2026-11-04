@@ -25,6 +25,8 @@ services:
     container_name: antam_clinic_api
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      # Bản một-cho-tất-cả: bỏ qua app.may-nay trong application.yml (dòng đó dành cho demo 4 máy)
+      APP_MAY_NAY: ""
     ports:
       - "${API_PORT:-8080}:8080"
     networks:

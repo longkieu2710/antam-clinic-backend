@@ -24,6 +24,13 @@ thì theo file này**.
   sửa bảng — không Flyway, không `ddl-auto`.
 - Chọn trạm theo request: `SiteFilter` đặt `SiteContext` → `SiteRoutingDataSource` chọn pool.
   `/api/master/**`, `/api/hq/**` → S0; `/api/system/**` không định tuyến; `/api/**` còn lại → header `X-Site` (S1..S3).
+- Bản triển khai: `app.may-nay` (demo 4 máy: hq | cn1..cn3) hoặc `app.mode` (`APP_MODE`): `all` như trên · `branch` chỉ
+  dữ liệu của trạm cục bộ, `/api/master/**` và `/api/hq/**` → 403 `HQ_ONLY`, pool S0 đăng nhập bằng role
+  `chi_nhanh_tra_cuu` (chỉ chạy được hàm tra cứu) · `hq` danh mục chung + báo cáo toàn chuỗi, dữ liệu chi nhánh chỉ GET
+  (ghi → 403 `READ_ONLY`).
+- Chi nhánh KHÔNG đọc hồ sơ của chi nhánh khác: tra cứu liên chi nhánh chỉ qua 3 hàm ở S0 trong
+  `scripts/sql/07_bao_mat_hub.sql` (trả mã, không trả thông tin cá nhân). Chức năng chi nhánh phải chạy được khi mất S0
+  thì không phụ thuộc S0 (mẫu: `BenhNhanService.nextMaBN`, `BenhNhanService.tiepDon`).
 
 ## Quy tắc bắt buộc
 
@@ -104,6 +111,9 @@ jdbc.sql("INSERT INTO thuoc (...) VALUES (:maThuoc, :tenThuoc, :hoatChat, :donVi
 - Phương thức "đọc chấp nhận lỗi" (vẫn trả dữ liệu dự phòng khi một trạm tắt — `ChiNhanhService.list`,
   `ThuocService.listMaster`) phải là `@Transactional(propagation = Propagation.NOT_SUPPORTED)`:
   nếu có transaction, S0 tắt sẽ lỗi trước khi vào `try`, và query FDW lỗi làm PostgreSQL huỷ cả transaction.
+- Phương thức bắt lỗi FDW rồi **chạy tiếp câu SQL khác** (vd đọc dự phòng ở bảng cục bộ — `BenhNhanService.create`) thì
+  KHÔNG gắn `@Transactional` nào: lỗi kết nối FDW có SQLSTATE `08001`, Hikari coi là kết nối hỏng và đóng nó; với
+  `NOT_SUPPORTED` cả phương thức vẫn giữ kết nối đó nên câu sau lỗi "Connection is closed".
 - Phương thức đọc **trạm khác** bằng `SiteContext.callOn(...)` (vd kiểm tra toàn chuỗi ở S0 rồi ghi ở chi nhánh) thì
   KHÔNG gắn `@Transactional` nào, kể cả `NOT_SUPPORTED`: khi có đồng bộ transaction, Spring giữ kết nối đầu tiên cho cả
   phương thức nên `callOn` vẫn chạy trên trạm cũ. Đọc liên trạm trước, rồi ghi trong `TransactionTemplate`

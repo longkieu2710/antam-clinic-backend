@@ -18,6 +18,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import vn.antam.clinic.config.AppProperties;
+import vn.antam.clinic.dto.response.BacSiResponse;
 import vn.antam.clinic.service.ToanChuoiService;
 
 @WebMvcTest(ToanChuoiController.class)
@@ -29,6 +30,17 @@ class ToanChuoiControllerTest {
 
     @MockitoBean
     ToanChuoiService service;
+
+    @Test
+    void bacSi_chainWide_runsAtHubAndReturnsBranchCode() throws Exception {
+        when(service.bacSi("Toàn", null)).thenReturn(List.of(new BacSiResponse("BS-CN2-01", "Bác sĩ Toàn", null, null, null,
+                null, null, null, "Đang làm việc", "CN2-NOI", "Khoa Nội", null, null, null, List.of(), 3, "CN2")));
+
+        mvc.perform(get("/api/hq/bac-si").param("q", "Toàn"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Site-Used", "S0"))
+                .andExpect(jsonPath("$[0].maCn").value("CN2"));
+    }
 
     @Test
     void chiNhanh_commaSeparatedCodes_runsAtHubWithoutSiteHeader() throws Exception {

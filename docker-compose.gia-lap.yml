@@ -1,0 +1,35 @@
+# =============================================================================
+# Thử demo 4 máy trên 1 máy — file ghép thêm vào docker-compose.may.yml, luôn chạy qua scripts/gia_lap_4_may.sh.
+# Mỗi "máy" là một project compose riêng (gl-hq, gl-cn1…); mạng tailnet-gia đóng vai Tailscale: CSDL của máy X có tên
+# may-X trên mạng đó. Máy nào là cơ sở nào đặt bằng biến môi trường (MAY) nên không phụ thuộc application.yml.
+# CSDL không publish cổng (4 máy cùng dùng cổng 5432 bên trong mạng Docker), web mở :3200–3203.
+# =============================================================================
+x-db-gia-lap: &db-gia-lap
+  ports: !reset []
+  networks:
+    default:
+      aliases: [db-cuc-bo]
+    tailnet:
+      aliases: ["may-${MAY}"]
+
+services:
+  db-hq: *db-gia-lap
+  db-cn1: *db-gia-lap
+  db-cn2: *db-gia-lap
+  db-cn3: *db-gia-lap
+  api:
+    environment:
+      APP_MAY_NAY: ${MAY}
+      APP_DIA_CHI_MAY_HQ: may-hq
+      APP_DIA_CHI_MAY_CN1: may-cn1
+      APP_DIA_CHI_MAY_CN2: may-cn2
+      APP_DIA_CHI_MAY_CN3: may-cn3
+      APP_DB_CONG_MAY: "5432"
+      # 4 JVM trên 1 máy: giới hạn heap để vừa RAM của Docker Desktop
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Ho_Chi_Minh -Xmx384m"
+    networks: [default, tailnet]
+
+networks:
+  tailnet:
+    external: true
+    name: tailnet-gia

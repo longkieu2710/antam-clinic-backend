@@ -4,7 +4,11 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
-/** Bác sĩ = NHAN_VIEN (LoaiNV = 'BS') ⨝ BAC_SI, kèm số điện thoại (NV_SODIENTHOAI) và số lượt đã khám/chữa. */
+/**
+ * Bác sĩ = NHAN_VIEN (LoaiNV = 'BS') ⨝ BAC_SI, kèm số điện thoại (NV_SODIENTHOAI) và số lượt đã khám/chữa.
+ *
+ * @param maCn chi nhánh của khoa — phân biệt khi Trung tâm xem toàn chuỗi
+ */
 public record BacSiResponse(
         String maNV,
         String hoTen,
@@ -21,5 +25,6 @@ public record BacSiResponse(
         String hocVi,
         String soChungChiHanhNghe,
         List<String> soDienThoai,
-        long soLuot) {
+        long soLuot,
+        String maCn) {
 }

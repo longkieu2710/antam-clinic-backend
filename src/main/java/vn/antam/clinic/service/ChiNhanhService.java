@@ -32,7 +32,8 @@ public class ChiNhanhService {
     }
 
     /**
-     * Mọi trạm chi nhánh trong cấu hình, ghép với bảng CHI_NHANH. Không chạy trong transaction:
+     * Mọi trạm chi nhánh trong cấu hình, ghép với bảng CHI_NHANH của trạm đang chọn (S0, hoặc bản sao ở chi nhánh khi gọi
+     * qua /api/chi-nhanh). Không chạy trong transaction:
      * transaction lấy kết nối trước khi vào hàm, S0 tắt sẽ lỗi ngay thay vì rơi vào nhánh dự phòng bên dưới.
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

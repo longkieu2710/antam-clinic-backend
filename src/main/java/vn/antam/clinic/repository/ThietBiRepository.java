@@ -12,10 +12,16 @@ import vn.antam.clinic.entity.ThietBi;
 @Repository
 public class ThietBiRepository {
 
+    /**
+     * Gom số liệu bằng CTE GROUP BY (không truy vấn con theo từng dòng): câu này còn chạy ở S0 trên view toàn cục qua
+     * postgres_fdw (/api/hq/**), mỗi bảng chỉ quét qua FDW một lần.
+     */
     private static final String SELECT = """
+            WITH sd AS (SELECT matb, sum(solan) AS solansudung FROM su_dung_tb GROUP BY matb)
             SELECT tb.matb, tb.tentb, tb.loaitb, tb.dongiasudung, tb.ngaymua, tb.tinhtrang, tb.macn,
-                   COALESCE((SELECT sum(s.solan) FROM su_dung_tb s WHERE s.matb = tb.matb), 0) AS solansudung
+                   COALESCE(sd.solansudung, 0) AS solansudung
             FROM thiet_bi tb
+            LEFT JOIN sd ON sd.matb = tb.matb
             """;
 
     private final JdbcClient jdbc;

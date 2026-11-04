@@ -1,5 +1,6 @@
 package vn.antam.clinic.repository;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -173,6 +174,40 @@ public class LuotRepository {
     }
 
     /** Số lần chữa thuộc các đợt mở từ một lần khám — còn lần chữa thì không xoá lần khám được. */
+    /** Các lượt chữa của những đợt mở từ một lượt khám, theo thời gian. */
+    public List<LuotResponse> findLuotChuaCuaLuotKham(String maLuotKham) {
+        return jdbc.sql(SELECT + """
+                         WHERE lc.macddt IN (SELECT macddt FROM chan_doan_dieu_tri WHERE maluotkham = :maLuot)
+                         ORDER BY l.thoigian, l.maluot""")
+                .param("maLuot", maLuotKham)
+                .query(LuotResponse.class)
+                .list();
+    }
+
+    /** @return số dòng được sửa (0 = không có lượt khám này) */
+    public int updateKetLuanKham(String maLuot, String ketLuanKham) {
+        return jdbc.sql("UPDATE lan_kham SET ketluankham = :ketLuan WHERE maluot = :maLuot")
+                .param("ketLuan", ketLuanKham)
+                .param("maLuot", maLuot)
+                .update();
+    }
+
+    /** @return số dòng được sửa (0 = không có lượt chữa này) */
+    public int updateKetQuaChua(String maLuot, String tinhTrangSauChua, String ketLuanSauChua) {
+        return jdbc.sql("UPDATE lan_chua SET tinhtrangsauchua = :tinhTrang, ketluansauchua = :ketLuan WHERE maluot = :maLuot")
+                .param("tinhTrang", tinhTrangSauChua)
+                .param("ketLuan", ketLuanSauChua)
+                .param("maLuot", maLuot)
+                .update();
+    }
+
+    public int updateNgayHenTaiKham(String maLuot, LocalDate ngayHenTaiKham) {
+        return jdbc.sql("UPDATE luot_kham_chua SET ngayhentaikham = :ngayHen WHERE maluot = :maLuot")
+                .param("ngayHen", ngayHenTaiKham)
+                .param("maLuot", maLuot)
+                .update();
+    }
+
     public int countLanChuaCuaLuotKham(String maLuotKham) {
         return jdbc.sql("""
                         SELECT count(*) FROM lan_chua lc JOIN chan_doan_dieu_tri cd ON cd.macddt = lc.macddt
