@@ -176,7 +176,7 @@ public class LuotKhamService {
         luotRepo.insert(new LuotKhamChua(maLuot, thoiGian, LuotKhamChua.LOAI_KHAM, r.ngayHenTaiKham(),
                 Codes.blankToNull(r.ghiChu()), r.maKhoa(), r.maBS()));
         luotRepo.insert(new LanKham(maLuot, r.maBN(), Codes.blankToNull(r.lyDoKham()), Codes.blankToNull(r.trieuChung()),
-                ketLuan != null ? ketLuan : "Không phát hiện bệnh"));
+                ketLuan != null ? ketLuan : LanKham.KHONG_PHAT_HIEN_BENH));
 
         List<String> maDot = new ArrayList<>();
         if (!chanDoan.isEmpty()) {
@@ -195,7 +195,7 @@ public class LuotKhamService {
         chiTietService.ghi(rows);
 
         String tenBN = benhNhanRepo.findById(r.maBN()).map(b -> b.hoTen()).orElse(null);
-        return new TaoLuotResponse(maLuot, LuotKhamChua.LOAI_KHAM, r.maBN(), tenBN, maDot, null, false,
+        return new TaoLuotResponse(maLuot, LuotKhamChua.LOAI_KHAM, r.maBN(), tenBN, maDot, null,
                 rows.tongTien(), List.copyOf(canhBao));
     }
 

@@ -7,4 +7,7 @@ public record LanKham(
         String lyDoKham,
         String trieuChung,
         String ketLuanKham) {
+
+    /** Kết luận khi lượt khám không chẩn đoán bệnh nào và người dùng không nhập kết luận. */
+    public static final String KHONG_PHAT_HIEN_BENH = "Không phát hiện bệnh";
 }

@@ -39,7 +39,7 @@ final class LuotFixtures {
 
     static BacSiResponse bacSi(String maNV, String maKhoa, String trangThai) {
         return new BacSiResponse(maNV, "BS " + maNV, null, "Nam", null, null, new BigDecimal("4.0"), LocalDate.of(2020, 1, 1),
-                trangThai, maKhoa, "Khoa " + maKhoa, null, null, null, List.of(), 0);
+                trangThai, maKhoa, "Khoa " + maKhoa, null, null, null, List.of(), 0, "CN1");
     }
 
     static DotDieuTriResponse dot(String maCDDT, String maBenh, String maCn, String trangThai, LocalDateTime luotGanNhat) {

@@ -8,7 +8,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
@@ -67,33 +66,35 @@ class LuotChuaServiceTest {
         when(dotRepo.countLanChua("CDDT-CN1-001")).thenReturn(1);
         when(luotRepo.findMaLuotByPrefix("C-CN1-TMH-BS-CN1-01-261022-")).thenReturn(List.of());
 
-        TaoLuotResponse result = service.create(request("Đỡ", null));
+        TaoLuotResponse result = service.create(request());
 
         assertThat(result.maLuot()).isEqualTo("C-CN1-TMH-BS-CN1-01-261022-001");
         assertThat(result.lanThu()).isEqualTo(2);
-        assertThat(result.ketThucDot()).isFalse();
         ArgumentCaptor<LuotKhamChua> luot = ArgumentCaptor.forClass(LuotKhamChua.class);
         verify(luotRepo).insert(luot.capture());
         assertThat(luot.getValue().maBS()).isEqualTo("BS-CN1-01");
         assertThat(luot.getValue().maKhoa()).isEqualTo("CN1-TMH");
         assertThat(luot.getValue().loaiLuot()).isEqualTo(LuotKhamChua.LOAI_CHUA);
         verify(luotRepo, times(2)).insert(any(LanChuaHinhThuc.class));
-        verify(dotRepo).updateTienTrinh("CDDT-CN1-001", 3, ChanDoanDieuTri.DANG_DIEU_TRI, null);
     }
 
     @Test
-    void create_khoi_closesDotAtVisitTimeAndDropsAppointment() {
+    void create_leavesResultForEditAndDotUntouched() {
         stubOpenDot();
         when(dotRepo.countLanChua("CDDT-CN1-001")).thenReturn(2);
         when(luotRepo.findMaLuotByPrefix(anyString())).thenReturn(List.of());
 
-        TaoLuotResponse result = service.create(request(LanChua.KHOI, 3));
+        service.create(request());
 
-        assertThat(result.ketThucDot()).isTrue();
         ArgumentCaptor<LuotKhamChua> luot = ArgumentCaptor.forClass(LuotKhamChua.class);
         verify(luotRepo).insert(luot.capture());
         assertThat(luot.getValue().ngayHenTaiKham()).isNull();
-        verify(dotRepo).updateTienTrinh("CDDT-CN1-001", 3, ChanDoanDieuTri.DA_KHOI, LUOT_TRUOC.plusDays(2));
+        ArgumentCaptor<LanChua> lan = ArgumentCaptor.forClass(LanChua.class);
+        verify(luotRepo).insert(lan.capture());
+        assertThat(lan.getValue().lanThu()).isEqualTo(3);
+        assertThat(lan.getValue().tinhTrangSauChua()).isNull();
+        assertThat(lan.getValue().ketLuanSauChua()).isNull();
+        verify(dotRepo, never()).updateTienTrinh(anyString(), any(Integer.class), anyString(), any());
     }
 
     @Test
@@ -101,7 +102,7 @@ class LuotChuaServiceTest {
         when(dotRepo.findById("CDDT-CN1-001")).thenReturn(Optional.of(
                 LuotFixtures.dot("CDDT-CN1-001", "B01", "CN1", ChanDoanDieuTri.DA_KHOI, LUOT_TRUOC)));
 
-        assertThatThrownBy(() -> service.create(request("Đỡ", null)))
+        assertThatThrownBy(() -> service.create(request()))
                 .isInstanceOfSatisfying(BusinessException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
                     assertThat(e.getCode()).isEqualTo("BR3");
@@ -114,7 +115,7 @@ class LuotChuaServiceTest {
         when(dotRepo.findById("CDDT-CN1-001")).thenReturn(Optional.of(
                 LuotFixtures.dotDang("CDDT-CN1-001", "B01", "CN1", LUOT_TRUOC.plusDays(2))));
 
-        assertThatThrownBy(() -> service.create(request("Đỡ", null)))
+        assertThatThrownBy(() -> service.create(request()))
                 .isInstanceOfSatisfying(BusinessException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
                     assertThat(e.getCode()).isEqualTo("BR3");
@@ -128,15 +129,8 @@ class LuotChuaServiceTest {
         when(bacSiRepo.findById("BS-CN1-01")).thenReturn(Optional.of(
                 LuotFixtures.bacSi("BS-CN1-01", "CN1-TMH", NhanVien.NGUNG_HOAT_DONG)));
 
-        assertThatThrownBy(() -> service.create(request("Đỡ", null)))
+        assertThatThrownBy(() -> service.create(request()))
                 .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo("BR2"));
-    }
-
-    @Test
-    void create_unknownTinhTrang_throwsValidationBeforeDb() {
-        assertThatThrownBy(() -> service.create(request("Tốt", null)))
-                .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
-        verifyNoInteractions(dotRepo, luotRepo);
     }
 
     @Test
@@ -167,8 +161,8 @@ class LuotChuaServiceTest {
         when(chiTietService.kiemTra(any(), eq(true))).thenReturn(RONG);
     }
 
-    private static LuotChuaRequest request(String tinhTrang, Integer soLan) {
-        return new LuotChuaRequest("CDDT-CN1-001", LUOT_TRUOC.plusDays(2), List.of("Khí dung", " Tiêm "), "Đỡ đau",
-                tinhTrang, soLan, LUOT_TRUOC.toLocalDate().plusDays(7), null, null, null, null, null);
+    private static LuotChuaRequest request() {
+        return new LuotChuaRequest("CDDT-CN1-001", LUOT_TRUOC.plusDays(2), List.of("Khí dung", " Tiêm "), null,
+                null, null, null, null);
     }
 }

@@ -30,7 +30,9 @@ import vn.antam.clinic.util.Codes;
 
 /**
  * Tạo lượt chữa cho một đợt đang điều trị, và đánh dấu đợt "Ngừng điều trị".
- * Chi nhánh không có trigger nên BR2, BR3, BR10, BR11 được kiểm tra tại đây, trong cùng transaction với phần ghi.
+ * Chi nhánh không có trigger nên BR2, BR3, BR11 được kiểm tra tại đây, trong cùng transaction với phần ghi. Kết quả của
+ * lần chữa (tình trạng — "Khỏi" kết thúc đợt, BR10 —, kết luận, số lần cần thiết, hẹn) nhập khi sửa lượt
+ * ({@link LuotService#suaLuotChua}).
  */
 @Service
 public class LuotChuaService {
@@ -63,20 +65,12 @@ public class LuotChuaService {
         if (thoiGian.isAfter(LocalDateTime.now().plusMinutes(5))) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "FUTURE_TIME", "Thời gian chữa không được ở tương lai.");
         }
-        if (!LanChua.TINH_TRANG.contains(r.tinhTrangSauChua())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "VALIDATION",
-                    "Tình trạng sau chữa là một trong: " + String.join(", ", LanChua.TINH_TRANG) + ".");
-        }
-        boolean khoi = LanChua.KHOI.equals(r.tinhTrangSauChua());
-        if (!khoi && r.ngayHenTaiKham() != null && !r.ngayHenTaiKham().isAfter(thoiGian.toLocalDate())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "BAD_APPOINTMENT", "Ngày hẹn tái khám phải sau ngày chữa.");
-        }
         Set<String> hinhThuc = new LinkedHashSet<>();
         r.hinhThuc().forEach(h -> hinhThuc.add(h.trim()));
 
         for (int lan = 1; ; lan++) {
             try {
-                return tx.execute(status -> ghi(r, thoiGian, khoi, hinhThuc));
+                return tx.execute(status -> ghi(r, thoiGian, hinhThuc));
             } catch (DuplicateKeyException e) {
                 if (lan >= LuotKhamService.SO_LAN_THU) {
                     throw e;
@@ -85,7 +79,7 @@ public class LuotChuaService {
         }
     }
 
-    private TaoLuotResponse ghi(LuotChuaRequest r, LocalDateTime thoiGian, boolean khoi, Set<String> hinhThuc) {
+    private TaoLuotResponse ghi(LuotChuaRequest r, LocalDateTime thoiGian, Set<String> hinhThuc) {
         DotDieuTriResponse dot = dotRepo.findById(r.maCDDT())
                 .orElseThrow(() -> BusinessException.notFound("đợt điều trị (tại chi nhánh này)", r.maCDDT()));
         // BR3: chỉ thêm lần chữa vào đợt đang điều trị, sau lượt gần nhất của đợt
@@ -110,21 +104,15 @@ public class LuotChuaService {
         String prefix = Codes.luotPrefix("C", dot.maKhoa(), dot.maBS(), thoiGian);
         String maLuot = Codes.next(prefix, luotRepo.findMaLuotByPrefix(prefix), 3);
 
-        luotRepo.insert(new LuotKhamChua(maLuot, thoiGian, LuotKhamChua.LOAI_CHUA, khoi ? null : r.ngayHenTaiKham(),
+        luotRepo.insert(new LuotKhamChua(maLuot, thoiGian, LuotKhamChua.LOAI_CHUA, null,
                 Codes.blankToNull(r.ghiChu()), dot.maKhoa(), dot.maBS()));
-        luotRepo.insert(new LanChua(maLuot, dot.maCDDT(), lanThu, Codes.blankToNull(r.ketLuanSauChua()), r.tinhTrangSauChua()));
+        luotRepo.insert(new LanChua(maLuot, dot.maCDDT(), lanThu, null, null));
         hinhThuc.forEach(h -> luotRepo.insert(new LanChuaHinhThuc(maLuot, h)));
         ChiTietLuotService.ChiTiet rows = chiTiet.withMaLuot(maLuot);
         chiTietService.ghi(rows);
 
-        // BR10: kết luận "Khỏi" → đợt kết thúc "Đã khỏi" (bác sĩ được thưởng ở F3); bác sĩ được chỉnh số lần dự kiến
-        int soLan = r.soLanChuaCanThiet() != null ? r.soLanChuaCanThiet()
-                : dot.soLanChuaCanThiet() != null ? dot.soLanChuaCanThiet() : 1;
-        dotRepo.updateTienTrinh(dot.maCDDT(), soLan, khoi ? ChanDoanDieuTri.DA_KHOI : ChanDoanDieuTri.DANG_DIEU_TRI,
-                khoi ? thoiGian : null);
-
         return new TaoLuotResponse(maLuot, LuotKhamChua.LOAI_CHUA, dot.maBN(), dot.tenBN(), List.of(dot.maCDDT()),
-                lanThu, khoi, rows.tongTien(), List.of());
+                lanThu, rows.tongTien(), List.of());
     }
 
     /** Đánh dấu đợt "Ngừng điều trị" — bệnh nhân bỏ dở (BR12); bác sĩ không được thưởng cho đợt này. */

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -25,6 +26,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import vn.antam.clinic.config.AppProperties;
+import vn.antam.clinic.dto.request.SuaLuotChuaRequest;
 import vn.antam.clinic.dto.response.TaoLuotResponse;
 import vn.antam.clinic.exception.BusinessException;
 import vn.antam.clinic.service.LuotChuaService;
@@ -43,9 +45,48 @@ class LuotControllerTest {
     @MockitoBean LuotChuaService luotChuaService;
 
     @Test
+    void suaKham_closedDot_returns409() throws Exception {
+        when(luotService.suaLuotKham(eq("K-1"), any())).thenThrow(new BusinessException(HttpStatus.CONFLICT,
+                "DOT_DA_KET_THUC", "Đợt đã khỏi"));
+
+        mvc.perform(put("/api/luot-kham/K-1").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"ketLuanKham":"Viêm họng","ngayHenTaiKham":"2026-12-01"}"""))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DOT_DA_KET_THUC"));
+    }
+
+    @Test
+    void suaKham_conclusionTooLong_returns400WithoutCallingService() throws Exception {
+        mvc.perform(put("/api/luot-kham/K-1").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ketLuanKham\":\"" + "x".repeat(2001) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.ketLuanKham").exists());
+        verifyNoInteractions(luotService);
+    }
+
+    @Test
+    void suaChua_validBody_delegatesToService() throws Exception {
+        mvc.perform(put("/api/luot-chua/C-1").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"tinhTrangSauChua":"Khỏi","ketLuanSauChua":"Hết triệu chứng","soLanChuaCanThiet":4}"""))
+                .andExpect(status().isOk());
+        verify(luotService).suaLuotChua("C-1", new SuaLuotChuaRequest("Khỏi", "Hết triệu chứng", 4, null));
+    }
+
+    @Test
+    void suaChua_plannedCountBelowOne_returns400() throws Exception {
+        mvc.perform(put("/api/luot-chua/C-1").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"soLanChuaCanThiet\":0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.soLanChuaCanThiet").exists());
+        verifyNoInteractions(luotService);
+    }
+
+    @Test
     void createKham_validBody_returns201WithCode() throws Exception {
         when(luotKhamService.create(any())).thenReturn(new TaoLuotResponse("K-CN1-TMH-BS-CN1-01-261023-001", "KHAM", "BN01",
-                "Nguyễn Văn An", List.of("CDDT-CN1-010"), null, false, new BigDecimal("150000"), List.of()));
+                "Nguyễn Văn An", List.of("CDDT-CN1-010"), null, new BigDecimal("150000"), List.of()));
 
         mvc.perform(post("/api/luot-kham").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -76,7 +117,7 @@ class LuotControllerTest {
     void createChua_withoutHinhThuc_returns400() throws Exception {
         mvc.perform(post("/api/luot-chua").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"maCDDT":"CDDT-CN1-001","hinhThuc":[],"tinhTrangSauChua":"Đỡ"}"""))
+                                {"maCDDT":"CDDT-CN1-001","hinhThuc":[]}"""))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors.hinhThuc").value("Chọn ít nhất một hình thức chữa"));
         verifyNoInteractions(luotChuaService);
@@ -88,7 +129,7 @@ class LuotControllerTest {
 
         mvc.perform(post("/api/luot-chua").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"maCDDT":"CDDT-CN1-001","hinhThuc":["Tiêm"],"tinhTrangSauChua":"Đỡ","dichVu":[{"maDV":"DV01","soLuong":1}]}"""))
+                                {"maCDDT":"CDDT-CN1-001","hinhThuc":["Tiêm"],"dichVu":[{"maDV":"DV01","soLuong":1}]}"""))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("BR11"));
     }

@@ -122,6 +122,6 @@ class YTaServiceTest {
 
     private static YTaResponse response(String maNV, long soLanHoTro) {
         return new YTaResponse(maNV, "Lê Thị B", LocalDate.of(1995, 1, 2), "Nữ", null, "Hà Nội", new BigDecimal("2.34"),
-                LocalDate.now(), "Đang làm việc", "CN2-RHM", "Khoa RHM", "Cử nhân Điều dưỡng", null, List.of(), soLanHoTro);
+                LocalDate.now(), "Đang làm việc", "CN2-RHM", "Khoa RHM", "Cử nhân Điều dưỡng", null, List.of(), soLanHoTro, "CN2");
     }
 }

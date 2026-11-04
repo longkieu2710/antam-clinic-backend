@@ -18,17 +18,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionSystemException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import vn.antam.clinic.dto.response.BacSiResponse;
 import vn.antam.clinic.dto.response.BenhNhanTomTatResponse;
 import vn.antam.clinic.dto.response.DoanhThuChiNhanhResponse;
 import vn.antam.clinic.dto.response.DoanhThuChiNhanhThangResponse;
 import vn.antam.clinic.dto.response.DoanhThuResponse;
 import vn.antam.clinic.dto.response.DoanhThuToanChuoiResponse;
 import vn.antam.clinic.dto.response.HoSoBenhNhanResponse;
+import vn.antam.clinic.dto.response.KhoaResponse;
+import vn.antam.clinic.dto.response.ThietBiResponse;
 import vn.antam.clinic.dto.response.ThongKeBenhChiNhanhResponse;
 import vn.antam.clinic.dto.response.ThongKeBenhItemResponse;
 import vn.antam.clinic.dto.response.ThongKeBenhResponse;
 import vn.antam.clinic.dto.response.ThongKeBenhToanChuoiItemResponse;
 import vn.antam.clinic.dto.response.ThongKeBenhToanChuoiResponse;
+import vn.antam.clinic.dto.response.YTaResponse;
 import vn.antam.clinic.entity.ChiNhanh;
 import vn.antam.clinic.exception.BusinessException;
 import vn.antam.clinic.repository.ChiNhanhRepository;
@@ -39,6 +43,8 @@ import vn.antam.clinic.util.Codes;
  * Báo cáo toàn chuỗi (/api/hq/**, luôn chạy ở S0). S0 đọc 3 chi nhánh qua postgres_fdw nên một chi nhánh tắt là câu
  * lệnh lỗi — khi đó trả 503 nêu rõ trạm nào không phản hồi.
  * Các báo cáo dùng lại service F2 / F4 / F5: SQL của chúng chỉ dùng tên bảng, ở S0 là view toàn cục cùng tên.
+ * Danh sách bác sĩ / y tá / khoa / thiết bị của cả chuỗi (máy Trung tâm, chỉ xem) dùng lại service danh mục chi nhánh
+ * theo cách đó; mỗi dòng có mã chi nhánh (maCn).
  */
 @Service
 public class ToanChuoiService {
@@ -48,17 +54,46 @@ public class ToanChuoiService {
     private final HoSoBenhNhanService hoSoService;
     private final DoanhThuService doanhThuService;
     private final ThongKeBenhService thongKeBenhService;
+    private final BacSiService bacSiService;
+    private final YTaService yTaService;
+    private final KhoaService khoaService;
+    private final ThietBiService thietBiService;
     private final SiteHealthService health;
 
     public ToanChuoiService(ToanChuoiRepository repo, ChiNhanhRepository chiNhanhRepo, HoSoBenhNhanService hoSoService,
                             DoanhThuService doanhThuService, ThongKeBenhService thongKeBenhService,
-                            SiteHealthService health) {
+                            BacSiService bacSiService, YTaService yTaService, KhoaService khoaService,
+                            ThietBiService thietBiService, SiteHealthService health) {
         this.repo = repo;
         this.chiNhanhRepo = chiNhanhRepo;
         this.hoSoService = hoSoService;
         this.doanhThuService = doanhThuService;
         this.thongKeBenhService = thongKeBenhService;
+        this.bacSiService = bacSiService;
+        this.yTaService = yTaService;
+        this.khoaService = khoaService;
+        this.thietBiService = thietBiService;
         this.health = health;
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<BacSiResponse> bacSi(String q, String maKhoa) {
+        return chain(() -> bacSiService.search(q, maKhoa));
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<YTaResponse> yTa(String q, String maKhoa) {
+        return chain(() -> yTaService.search(q, maKhoa));
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<KhoaResponse> khoa() {
+        return chain(khoaService::list);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<ThietBiResponse> thietBi(String q) {
+        return chain(() -> thietBiService.search(q));
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

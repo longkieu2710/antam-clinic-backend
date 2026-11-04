@@ -38,7 +38,7 @@ class YTaControllerTest {
     @Test
     void create_validBody_returns201() throws Exception {
         when(service.create(any())).thenReturn(new YTaResponse("YT-CN1-02", "Lê Thị B", null, "Nữ", null, null,
-                new BigDecimal("2.34"), LocalDate.now(), "Đang làm việc", "CN1-TMH", "Khoa TMH", null, null, List.of(), 0));
+                new BigDecimal("2.34"), LocalDate.now(), "Đang làm việc", "CN1-TMH", "Khoa TMH", null, null, List.of(), 0, "CN1"));
 
         mvc.perform(post("/api/y-ta").header("X-Site", "S1").contentType(MediaType.APPLICATION_JSON)
                         .content("""

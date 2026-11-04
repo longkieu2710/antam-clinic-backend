@@ -8,7 +8,6 @@ import java.util.List;
  *
  * @param maCDDT          khám: các đợt vừa mở; chữa: đợt của lần chữa
  * @param lanThu          chữa: lần chữa thứ mấy của đợt; khám: null
- * @param ketThucDot      chữa: lần này kết luận "Khỏi" nên đợt chuyển "Đã khỏi" (BR10)
  * @param canhBao         cảnh báo không chặn việc lưu (vd không kiểm tra được BR4 ở chi nhánh khác vì S0 tắt)
  */
 public record TaoLuotResponse(
@@ -18,7 +17,6 @@ public record TaoLuotResponse(
         String tenBN,
         List<String> maCDDT,
         Integer lanThu,
-        boolean ketThucDot,
         BigDecimal tongTien,
         List<String> canhBao) {
 }

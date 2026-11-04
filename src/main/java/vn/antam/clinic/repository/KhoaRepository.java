@@ -12,11 +12,18 @@ import vn.antam.clinic.entity.Khoa;
 @Repository
 public class KhoaRepository {
 
+    /**
+     * Gom số liệu bằng CTE GROUP BY (không truy vấn con theo từng dòng): câu này còn chạy ở S0 trên view toàn cục qua
+     * postgres_fdw (/api/hq/**), mỗi bảng chỉ quét qua FDW một lần.
+     */
     private static final String SELECT = """
+            WITH nv AS (SELECT makhoa, count(*) AS sonhanvien FROM nhan_vien GROUP BY makhoa),
+                 luot AS (SELECT makhoa, count(*) AS soluot FROM luot_kham_chua GROUP BY makhoa)
             SELECT k.makhoa, k.tenkhoa, k.mota, k.macn,
-                   (SELECT count(*) FROM nhan_vien nv WHERE nv.makhoa = k.makhoa) AS sonhanvien,
-                   (SELECT count(*) FROM luot_kham_chua l WHERE l.makhoa = k.makhoa) AS soluot
+                   COALESCE(nv.sonhanvien, 0) AS sonhanvien, COALESCE(luot.soluot, 0) AS soluot
             FROM khoa k
+            LEFT JOIN nv ON nv.makhoa = k.makhoa
+            LEFT JOIN luot ON luot.makhoa = k.makhoa
             """;
 
     private final JdbcClient jdbc;

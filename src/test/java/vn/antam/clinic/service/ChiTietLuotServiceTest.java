@@ -118,7 +118,7 @@ class ChiTietLuotServiceTest {
 
     private static LuotChuaRequest request(List<YTaHoTroRequest> yTa, List<DichVuDungRequest> dv, List<ThuocKeRequest> thuoc,
                                            List<ThietBiDungRequest> tb) {
-        return new LuotChuaRequest("CDDT-1", null, List.of("Tiêm"), null, "Đỡ", null, null, null, yTa, dv, thuoc, tb);
+        return new LuotChuaRequest("CDDT-1", null, List.of("Tiêm"), null, yTa, dv, thuoc, tb);
     }
 
     private static ThietBiResponse device(String tinhTrang) {
@@ -128,6 +128,6 @@ class ChiTietLuotServiceTest {
 
     private static YTaResponse nurse(String trangThai) {
         return new YTaResponse("YT-CN1-01", "Y tá Mai", null, "Nữ", null, null, new BigDecimal("2.34"), null, trangThai,
-                "CN1-TMH", "Khoa TMH", null, null, List.of(), 0);
+                "CN1-TMH", "Khoa TMH", null, null, List.of(), 0, "CN1");
     }
 }

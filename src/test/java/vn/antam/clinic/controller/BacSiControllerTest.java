@@ -92,6 +92,6 @@ class BacSiControllerTest {
 
     private static BacSiResponse response(String maNV) {
         return new BacSiResponse(maNV, "Nguyễn Văn A", null, null, null, null, new BigDecimal("2.34"),
-                LocalDate.now(), "Đang làm việc", "K01", "Khoa Nội", null, null, null, List.of("0901234567"), 0);
+                LocalDate.now(), "Đang làm việc", "K01", "Khoa Nội", null, null, null, List.of("0901234567"), 0, "CN1");
     }
 }

@@ -10,12 +10,15 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import vn.antam.clinic.dto.request.LuotChuaRequest;
 import vn.antam.clinic.dto.request.LuotKhamRequest;
+import vn.antam.clinic.dto.request.SuaLuotChuaRequest;
+import vn.antam.clinic.dto.request.SuaLuotKhamRequest;
 import vn.antam.clinic.dto.response.DeleteResponse;
 import vn.antam.clinic.dto.response.LuotChiTietResponse;
 import vn.antam.clinic.dto.response.LuotResponse;
@@ -70,6 +73,18 @@ public class LuotController {
     @ResponseStatus(HttpStatus.CREATED)
     public TaoLuotResponse createKham(@Valid @RequestBody LuotKhamRequest request) {
         return luotKhamService.create(request);
+    }
+
+    /** Sửa kết quả lượt chữa; "Khỏi" kết thúc đợt (BR10). 409 khi đợt đã kết thúc / "Khỏi" không ở lần chữa cuối. */
+    @PutMapping("/api/luot-chua/{maLuot}")
+    public LuotChiTietResponse suaChua(@PathVariable String maLuot, @Valid @RequestBody SuaLuotChuaRequest request) {
+        return luotService.suaLuotChua(maLuot, request);
+    }
+
+    /** Sửa kết luận + ngày hẹn tái khám của lượt khám (409 DOT_DA_KET_THUC khi có đợt đã khỏi / ngừng điều trị). */
+    @PutMapping("/api/luot-kham/{maLuot}")
+    public LuotChiTietResponse suaKham(@PathVariable String maLuot, @Valid @RequestBody SuaLuotKhamRequest request) {
+        return luotService.suaLuotKham(maLuot, request);
     }
 
     @PostMapping("/api/luot-chua")

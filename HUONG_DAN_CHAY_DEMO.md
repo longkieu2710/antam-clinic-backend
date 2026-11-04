@@ -5,7 +5,7 @@ mỗi cơ sở chạy trên một máy riêng (CSDL + backend + giao diện), c�
 
 | Máy | Được làm gì |
 |---|---|
-| Trung tâm | Danh mục chung (thuốc, bệnh, dịch vụ, lương cơ sở, chi nhánh), báo cáo toàn chuỗi. Chọn một chi nhánh để **xem** dữ liệu của chi nhánh đó — không thêm / sửa / xoá được |
+| Trung tâm | Danh mục chung (thuốc, bệnh, dịch vụ, lương cơ sở, chi nhánh), báo cáo toàn chuỗi. **Xem** bác sĩ, y tá, bệnh nhân, khoa, thiết bị của cả chuỗi (có cột chi nhánh) — không thêm / sửa / xoá được |
 | Chi nhánh | Thêm / sửa / xoá dữ liệu của **chính chi nhánh đó**. Không xem được chi nhánh khác và chức năng Trung tâm. Vẫn làm việc khi mất mạng |
 
 Có hai cách chạy:
@@ -194,9 +194,9 @@ Mỗi máy mở http://localhost:3000.
 
 - **Máy chi nhánh**: thanh tiêu đề ghi "Bản chi nhánh", ô chi nhánh bị khoá. Có Tiếp đón, tạo lượt khám / chữa, danh mục
   của chi nhánh, "Thuốc (bản sao)", báo cáo chi nhánh.
-- **Máy Trung tâm**: ghi "Bản Trung tâm". Chọn chi nhánh ở ô "Xem chi nhánh" để xem dữ liệu chi nhánh đó (hiện tag
-  "Chỉ xem", không có nút thêm / sửa / xoá). Các màn Trung tâm (thuốc, bệnh, dịch vụ, báo cáo toàn chuỗi) sửa được bình
-  thường.
+- **Máy Trung tâm**: ghi "Bản Trung tâm", không có ô chọn chi nhánh. Bác sĩ / Y tá / Bệnh nhân / Khoa / Thiết bị hiện của
+  cả chuỗi, có cột "Chi nhánh" (tag "Chỉ xem", không có nút thêm / sửa / xoá). Các màn Trung tâm (thuốc, bệnh, dịch vụ,
+  báo cáo toàn chuỗi) sửa được bình thường.
 
 ### B8. Các lần sau
 
@@ -230,8 +230,8 @@ Mỗi máy mở http://localhost:3000.
 Thực hiện trên 4 máy (Phần B) hoặc 4 tab (Phần A).
 
 1. **Dữ liệu tách theo chi nhánh** — ở máy CN1 vào Bác sĩ / Bệnh nhân: chỉ thấy dữ liệu Cầu Giấy, ô chi nhánh bị khoá.
-2. **Trung tâm chỉ xem** — ở máy Trung tâm chọn "Đống Đa" ở ô "Xem chi nhánh", vào Bác sĩ: thấy dữ liệu CN2, tag "Chỉ xem",
-   không có nút thêm / sửa / xoá.
+2. **Trung tâm xem cả chuỗi** — ở máy Trung tâm vào Bác sĩ: thấy bác sĩ của cả 3 chi nhánh với cột "Chi nhánh", tag
+   "Chỉ xem", không có nút thêm / sửa / xoá.
 3. **Bảo mật thông tin bệnh nhân** — ở máy CN3 vào Tiếp đón, nhập CCCD `001095006666`: chỉ báo "đã có mã BN02 … tại chi
    nhánh CN2", **không** hiện họ tên, địa chỉ hay bệnh sử. Bấm "Lập hồ sơ với mã này" → lập hồ sơ tại CN3 với mã BN02.
    Thử nhập họ tên "Trần": không tìm ra bệnh nhân của chi nhánh khác.
@@ -243,6 +243,13 @@ Thực hiện trên 4 máy (Phần B) hoặc 4 tab (Phần A).
    - Trong lúc đó, Trung tâm thêm một thuốc nữa.
 6. **Nối lại** — bật lại Tailscale ở CN1 (Phần A: `co-mang cn1`): thuốc vừa thêm tự về CN1, báo cáo toàn chuỗi chạy lại
    bình thường.
+
+7. **Sửa lượt khám** — ở máy chi nhánh vào Tạo lượt khám (không còn ô kết luận, hẹn tái khám), lưu một lượt có chẩn đoán.
+   Mở chi tiết lượt đó (Danh sách lượt → bấm dòng) → **Sửa** → nhập kết luận và ngày hẹn tái khám. Tạo một lượt chữa cho
+   đợt (form không còn tình trạng, kết luận sau chữa, số lần chữa cần thiết, hẹn tái khám tiếp) → chi tiết lượt khám hiện
+   lượt chữa đó, tình trạng "Chưa cập nhật" (bấm để xem). Trong chi tiết lượt chữa → **Sửa** → chọn tình trạng "Đỡ", hẹn
+   tái khám tiếp → lưu. Sửa lại, chọn **"Khỏi"** → đợt chuyển "Đã khỏi", nút Sửa của cả lượt khám và lượt chữa bị khoá
+   (di chuột vào để xem lý do). Muốn làm lại: xoá lần chữa đó — đợt mở lại "Đang điều trị".
 
 ---
 

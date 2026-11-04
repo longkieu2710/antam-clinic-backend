@@ -104,10 +104,12 @@ app:
 | Máy | Dữ liệu chi nhánh của mình | Dữ liệu chi nhánh khác | Chức năng Trung tâm (danh mục chung, báo cáo toàn chuỗi) | Dropdown chi nhánh |
 |---|---|---|---|---|
 | `cn1` / `cn2` / `cn3` | xem, thêm, sửa, xoá | không (`X-Site` khác → 400 `WRONG_SITE`) | không (403 `HQ_ONLY`); thuốc xem ở màn "Thuốc (bản sao)" | hiện, bị khoá |
-| `hq` | — | **chỉ xem** (ghi → 403 `READ_ONLY`; pool chi nhánh mở `default_transaction_read_only`) | đầy đủ | chọn được |
+| `hq` | — | **chỉ xem**, gộp cả chuỗi: bác sĩ, y tá, bệnh nhân, khoa, thiết bị đọc qua view toàn cục ở S0 (`/api/hq/*`), có cột chi nhánh | đầy đủ | không có |
 
-Frontend đọc `GET /api/system/mode` lúc mở trang rồi tự hiện đúng giao diện (dropdown khoá, tag "Chỉ xem", ẩn nút
-thêm / sửa / xoá). Từ `may-nay` backend tự suy ra chế độ và URL: CSDL của chính máy qua `db-cuc-bo` (Docker), CSDL máy
+Frontend đọc `GET /api/system/mode` lúc mở trang rồi tự hiện đúng giao diện (dropdown khoá ở máy chi nhánh; máy Trung
+tâm không có dropdown, không có các màn theo từng chi nhánh — tổng quan, danh sách lượt, báo cáo chi nhánh — mà dùng
+báo cáo toàn chuỗi; tag "Chỉ xem", ẩn nút thêm / sửa / xoá). Máy Trung tâm ghi vào dữ liệu chi nhánh → 403 `READ_ONLY`,
+pool chi nhánh của nó còn mở `default_transaction_read_only`. Từ `may-nay` backend tự suy ra chế độ và URL: CSDL của chính máy qua `db-cuc-bo` (Docker), CSDL máy
 khác qua IP trong `dia-chi-may`, cổng `app.db.cong-may` (5432).
 
 **Bảo mật thông tin bệnh nhân giữa các chi nhánh** (`scripts/sql/07_*` — không sửa cấu trúc bảng nào):
@@ -226,8 +228,11 @@ FE ──(header X-Site: S1|S2|S3)──► SiteFilter ──► SiteContext ─
 | Tổng quan chi nhánh — lượt hôm nay, đợt đang điều trị, doanh thu tháng, lịch hẹn, đợt quá hạn, bệnh nhiều nhất | `GET /api/tong-quan` |
 | Tiếp đón — hồ sơ tại chi nhánh; đúng số CCCD / thẻ BHYT thì thêm mã ở chi nhánh khác (không thông tin cá nhân) | `GET /api/benh-nhan/tiep-don?q=` |
 | Tạo lượt khám — chẩn đoán mở đợt, y tá, dịch vụ, thuốc, thiết bị | `POST /api/luot-kham` |
-| Tạo lượt chữa — chọn đợt đang mở, "Khỏi" kết thúc đợt; ngừng điều trị | `GET /api/benh-nhan/{maBN}/dot-dang-dieu-tri` · `POST /api/luot-chua` · `PUT /api/dot-dieu-tri/{maCDDT}/ngung` |
-| Danh sách lượt — lọc, xem chi tiết, xoá lượt nhập nhầm | `GET /api/luot?tu=&den=&loai=&khoa=&bs=&q=` · `GET/DELETE /api/luot/{maLuot}` |
+| Tạo lượt chữa — chọn đợt đang mở (kết quả lần chữa ghi sau, ở Sửa lượt chữa); ngừng điều trị | `GET /api/benh-nhan/{maBN}/dot-dang-dieu-tri` · `POST /api/luot-chua` · `PUT /api/dot-dieu-tri/{maCDDT}/ngung` |
+| Danh sách lượt — lọc, xem chi tiết (lượt khám kèm các lượt chữa của đợt), xoá lượt nhập nhầm | `GET /api/luot?tu=&den=&loai=&khoa=&bs=&q=` · `GET/DELETE /api/luot/{maLuot}` |
+| Sửa lượt khám — kết luận + ngày hẹn tái khám (không nhập lúc tạo); khoá khi có đợt mở từ lượt này đã khỏi / ngừng điều trị (409 `DOT_DA_KET_THUC`) | `PUT /api/luot-kham/{maLuot}` |
+| Sửa lượt chữa — tình trạng sau chữa ("Khỏi" kết thúc đợt), kết luận sau chữa, số lần chữa cần thiết, hẹn tái khám tiếp (không nhập lúc tạo); khoá khi đợt đã khỏi / ngừng điều trị (409 `DOT_DA_KET_THUC`) | `PUT /api/luot-chua/{maLuot}` |
+| Trung tâm — bác sĩ, y tá, khoa, thiết bị của cả chuỗi (có `maCn`) | `GET /api/hq/bac-si?q=&khoa=` · `/api/hq/y-ta?q=&khoa=` · `/api/hq/khoa` · `/api/hq/thiet-bi?q=` |
 
 **Danh mục chi nhánh (F1 — thêm / sửa / xoá theo `X-Site`)**
 
@@ -281,7 +286,8 @@ Ghi chú nghiệp vụ:
   - BR3: chỉ thêm vào đợt "Đang điều trị", thời gian phải sau lượt gần nhất của đợt. Lần thứ = số lần đã chữa + 1.
   - Có ít nhất 1 hình thức chữa (`LAN_CHUA_HINH_THUC`).
   - BR11: không tính dịch vụ loại "Khám bệnh".
-  - BR10: tình trạng "Khỏi" → đợt "Đã khỏi" + `NgayKetThuc`, và bác sĩ được thưởng ở F3. Bác sĩ được chỉnh số lần chữa cần thiết.
+  - Tình trạng / kết luận sau chữa, số lần chữa cần thiết và hẹn tái khám tiếp **không nhập lúc tạo** (chưa chữa thì chưa có kết quả): lượt chữa mới để tình trạng trống ("Chưa cập nhật"), đợt vẫn "Đang điều trị". Ghi ở **Sửa lượt chữa** (`PUT /api/luot-chua/{maLuot}`), bị khoá khi đợt đã khỏi / ngừng điều trị.
+  - BR10: sửa tình trạng thành "Khỏi" → đợt "Đã khỏi" + `NgayKetThuc` = thời gian lượt, bỏ hẹn, và bác sĩ được thưởng ở F3. Chỉ ghi "Khỏi" ở lần chữa cuối của đợt (409 `KHOI_KHONG_PHAI_LAN_CUOI`) và cho lượt trong tháng hiện tại (409 `HISTORY_LOCKED`, vì thưởng tháng trước đã tính lương). Muốn bỏ "Khỏi" thì xoá lần chữa đó (trong tháng) — đợt mở lại. Bác sĩ được chỉnh số lần chữa cần thiết.
 - **BR12**: đợt "Đang điều trị" mà bệnh nhân quá 30 ngày không quay lại được đánh dấu "Quá 30 ngày" (tổng quan, tạo lượt chữa, hồ sơ). CSDL không có job tự chuyển, nên có nút **Ngừng điều trị** — bác sĩ không được thưởng cho đợt đó.
 - **Xoá lượt nhập nhầm**:
   - Chỉ xoá được lượt trong tháng hiện tại, để lương và doanh thu các tháng trước không đổi.
