@@ -21,6 +21,7 @@ import vn.antam.clinic.dto.request.ChanDoanRequest;
 import vn.antam.clinic.dto.request.LuotKhamRequest;
 import vn.antam.clinic.dto.response.BacSiResponse;
 import vn.antam.clinic.dto.response.DotDieuTriResponse;
+import vn.antam.clinic.dto.response.LuotResponse;
 import vn.antam.clinic.dto.response.MaToanChuoiResponse;
 import vn.antam.clinic.dto.response.TaoLuotResponse;
 import vn.antam.clinic.entity.Benh;
@@ -223,4 +224,67 @@ public class LuotKhamService {
         }
         return rows.stream().filter(MaToanChuoiResponse::ketNoi).map(MaToanChuoiResponse::ma).toList();
     }
+
+    /**
+     * Thêm một chẩn đoán & đợt điều trị mới vào lượt khám đã có.
+     * Mở một đợt CHAN_DOAN_DIEU_TRI (Đang điều trị) và cập nhật kết luận khám nếu cần.
+     */
+    public DotDieuTriResponse themChanDoan(String maLuotKham, ChanDoanRequest r) {
+        String site = SiteContext.get();
+        LuotResponse luot = luotRepo.findById(maLuotKham)
+                .orElseThrow(() -> BusinessException.notFound("lượt", maLuotKham));
+        if (!LuotKhamChua.LOAI_KHAM.equals(luot.loaiLuot())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "NOT_EXAM", "Chỉ thêm chẩn đoán cho lượt khám.");
+        }
+        Benh benh = benhRepo.findById(r.maBenh())
+                .orElseThrow(() -> ChiTietLuotService.rule("NOT_IN_CATALOG", "Bệnh '" + r.maBenh() + "' chưa có trong danh mục tại chi nhánh."));
+
+        List<DotDieuTriResponse> existingDots = dotRepo.findByLuotKham(maLuotKham);
+        if (existingDots.stream().anyMatch(d -> d.maBenh().equals(r.maBenh()))) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "DUPLICATE_ROW",
+                    "Bệnh '" + benh.tenBenh() + "' đã được chẩn đoán trong lượt khám này (BR1).");
+        }
+
+        // BR4 cục bộ: kiểm tra xem bệnh nhân có đang điều trị bệnh này không
+        for (DotDieuTriResponse d : dotRepo.findDangDieuTri(luot.maBN())) {
+            if (r.maBenh().equals(d.maBenh())) {
+                throw ChiTietLuotService.rule("BR4", "Bệnh nhân đang có đợt \"" + d.tenBenh() + "\" (" + d.maCDDT()
+                        + ") chưa kết thúc — tạo lượt chữa cho đợt đó thay vì mở đợt mới (BR4).");
+            }
+        }
+
+        // BR4 trên toàn chuỗi
+        List<String> canhBao = new ArrayList<>();
+        List<String> dangDieuTriNoiKhac = benhDangDieuTriNoiKhac(luot.maBN(), Set.of(r.maBenh()), site, canhBao);
+        if (!dangDieuTriNoiKhac.isEmpty()) {
+            throw ChiTietLuotService.rule("BR4", "Bệnh nhân đang có đợt điều trị \"" + benh.tenBenh()
+                    + "\" chưa kết thúc ở chi nhánh khác — không mở đợt mới cùng bệnh (BR4).");
+        }
+
+        for (int lan = 1; ; lan++) {
+            try {
+                return tx.execute(status -> {
+                    String maCn = props.site(site).map(AppProperties.Site::maCn).orElse(site);
+                    List<String> allMa = new ArrayList<>(dotRepo.findAllMaCDDT());
+                    String maCDDT = Codes.next("CDDT-" + maCn + "-", allMa, 3);
+                    dotRepo.insert(new ChanDoanDieuTri(maCDDT, maLuotKham, r.maBenh(), Codes.blankToNull(r.mucDo()),
+                            r.soLanChuaCanThiet(), null, ChanDoanDieuTri.DANG_DIEU_TRI));
+
+                    String kl = luot.ketLuanKham();
+                    if (kl == null || LanKham.KHONG_PHAT_HIEN_BENH.equals(kl.trim())) {
+                        luotRepo.updateKetLuanKham(maLuotKham, benh.tenBenh());
+                    } else if (!kl.contains(benh.tenBenh())) {
+                        luotRepo.updateKetLuanKham(maLuotKham, kl + "; " + benh.tenBenh());
+                    }
+
+                    return dotRepo.findById(maCDDT).orElseThrow();
+                });
+            } catch (DuplicateKeyException e) {
+                if (lan >= SO_LAN_THU) {
+                    throw e;
+                }
+            }
+        }
+    }
+
 }

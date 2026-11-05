@@ -22,6 +22,13 @@ public class BenhRepository {
     }
 
     /** @param q tìm theo mã, tên hoặc mã ICD-10; bỏ trống = tất cả */
+    public java.util.Optional<Benh> findById(String maBenh) {
+        return jdbc.sql(SELECT + " WHERE mabenh = :maBenh")
+                .param("maBenh", maBenh)
+                .query(Benh.class)
+                .optional();
+    }
+
     public List<Benh> search(String q) {
         if (q == null || q.isBlank()) {
             return jdbc.sql(SELECT + " ORDER BY mabenh").query(Benh.class).list();

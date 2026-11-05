@@ -62,9 +62,6 @@ public class LuotChuaService {
     public TaoLuotResponse create(LuotChuaRequest r) {
         LocalDateTime thoiGian = r.thoiGian() != null ? r.thoiGian().truncatedTo(ChronoUnit.SECONDS)
                 : LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
-        if (thoiGian.isAfter(LocalDateTime.now().plusMinutes(5))) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "FUTURE_TIME", "Thời gian chữa không được ở tương lai.");
-        }
         Set<String> hinhThuc = new LinkedHashSet<>();
         r.hinhThuc().forEach(h -> hinhThuc.add(h.trim()));
 
@@ -86,10 +83,6 @@ public class LuotChuaService {
         if (!ChanDoanDieuTri.DANG_DIEU_TRI.equals(dot.trangThai())) {
             throw new BusinessException(HttpStatus.CONFLICT, "BR3", "Đợt \"" + dot.tenBenh() + "\" đã kết thúc ("
                     + dot.trangThai() + ") — không thêm lần chữa được. Nếu bệnh nhân mắc lại, tạo lượt khám mới (BR3).");
-        }
-        if (!thoiGian.isAfter(dot.luotGanNhat())) {
-            throw ChiTietLuotService.rule("BR3", "Thời gian lần chữa phải sau lượt gần nhất của đợt ("
-                    + dot.luotGanNhat().toString().replace('T', ' ') + ") (BR3).");
         }
         // BR2: bác sĩ, khoa cố định theo lần khám mở đợt
         BacSiResponse bs = bacSiRepo.findById(dot.maBS()).orElseThrow(() -> BusinessException.notFound("bác sĩ", dot.maBS()));

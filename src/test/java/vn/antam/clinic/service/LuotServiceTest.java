@@ -167,14 +167,13 @@ class LuotServiceTest {
     }
 
     @Test
-    void suaLuotKham_dotAlreadyCured_throwsConflictWithoutWriting() {
+    void suaLuotKham_dotAlreadyCured_stillAllowsEditing() {
         when(luotRepo.findById("K-1")).thenReturn(Optional.of(LuotFixtures.luot("K-1", LuotKhamChua.LOAI_KHAM, TRONG_THANG, null, null)));
         when(dotRepo.findByLuotKham("K-1")).thenReturn(List.of(
                 LuotFixtures.dot("CDDT-CN1-001", "B01", "CN1", ChanDoanDieuTri.DA_KHOI, TRONG_THANG)));
 
-        assertThatThrownBy(() -> service.suaLuotKham("K-1", new SuaLuotKhamRequest("Khỏi", null)))
-                .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo("DOT_DA_KET_THUC"));
-        verify(luotRepo, never()).updateKetLuanKham(anyString(), anyString());
+        service.suaLuotKham("K-1", new SuaLuotKhamRequest("Khỏi", null));
+        verify(luotRepo).updateKetLuanKham("K-1", "Khỏi");
     }
 
     @Test

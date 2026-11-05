@@ -66,7 +66,8 @@ public class LuotService {
                 : luot.maCDDT() == null ? List.of() : dotRepo.findById(luot.maCDDT()).map(List::of).orElse(List.of());
         String lyDo = lyDoKhongXoa(luot);
         boolean kham = LuotKhamChua.LOAI_KHAM.equals(luot.loaiLuot());
-        String lyDoSua = lyDoKhongSua(dot);
+        // Lượt khám luôn sửa được (kết luận, hẹn tái khám), không phụ thuộc vào trạng thái các đợt điều trị
+        String lyDoSua = kham ? null : lyDoKhongSua(dot);
         return new LuotChiTietResponse(luot, luotRepo.findHinhThuc(maLuot), luotRepo.findYTa(maLuot), dot,
                 luotRepo.findChiPhi(maLuot), lyDo == null, lyDo,
                 kham ? luotRepo.findLuotChuaCuaLuotKham(maLuot) : List.of(), lyDoSua == null, lyDoSua);
@@ -83,10 +84,6 @@ public class LuotService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "NOT_EXAM", "Chỉ sửa được lượt khám.");
         }
         List<DotDieuTriResponse> dot = dotRepo.findByLuotKham(maLuot);
-        String lyDo = lyDoKhongSua(dot);
-        if (lyDo != null) {
-            throw new BusinessException(HttpStatus.CONFLICT, "DOT_DA_KET_THUC", lyDo);
-        }
         if (r.ngayHenTaiKham() != null && !r.ngayHenTaiKham().isAfter(luot.thoiGian().toLocalDate())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "BAD_APPOINTMENT", "Ngày hẹn tái khám phải sau ngày khám.");
         }

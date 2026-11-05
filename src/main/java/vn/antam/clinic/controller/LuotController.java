@@ -15,7 +15,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import vn.antam.clinic.dto.request.ChanDoanRequest;
 import vn.antam.clinic.dto.request.LuotChuaRequest;
+import vn.antam.clinic.dto.response.DotDieuTriResponse;
 import vn.antam.clinic.dto.request.LuotKhamRequest;
 import vn.antam.clinic.dto.request.SuaLuotChuaRequest;
 import vn.antam.clinic.dto.request.SuaLuotKhamRequest;
@@ -92,4 +94,11 @@ public class LuotController {
     public TaoLuotResponse createChua(@Valid @RequestBody LuotChuaRequest request) {
         return luotChuaService.create(request);
     }
+
+    @PostMapping("/api/luot-kham/{maLuot}/chan-doan")
+    @ResponseStatus(HttpStatus.CREATED)
+    public DotDieuTriResponse themChanDoan(@PathVariable String maLuot, @Valid @RequestBody ChanDoanRequest request) {
+        return luotKhamService.themChanDoan(maLuot, request);
+    }
+
 }
