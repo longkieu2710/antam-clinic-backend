@@ -193,7 +193,7 @@ Chạy lại `init_may.sh` = đưa dữ liệu cả 4 máy về dữ liệu mẫ
 Mỗi máy mở http://localhost:3000.
 
 - **Máy chi nhánh**: thanh tiêu đề ghi "Bản chi nhánh", ô chi nhánh bị khoá. Có Tiếp đón, tạo lượt khám / chữa, danh mục
-  của chi nhánh, "Thuốc (bản sao)", báo cáo chi nhánh.
+  của chi nhánh, "Thuốc / Bệnh / Dịch vụ y tế / Lương cơ sở (bản sao)" (chỉ xem), báo cáo chi nhánh.
 - **Máy Trung tâm**: ghi "Bản Trung tâm", không có ô chọn chi nhánh. Bác sĩ / Y tá / Bệnh nhân / Khoa / Thiết bị hiện của
   cả chuỗi, có cột "Chi nhánh" (tag "Chỉ xem", không có nút thêm / sửa / xoá). Các màn Trung tâm (thuốc, bệnh, dịch vụ,
   báo cáo toàn chuỗi) sửa được bình thường.

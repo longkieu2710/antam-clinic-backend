@@ -5,12 +5,16 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import vn.antam.clinic.config.AppProperties;
+import vn.antam.clinic.dto.response.LuongCoSoResponse;
 import vn.antam.clinic.exception.BusinessException;
 import vn.antam.clinic.service.LuongCoSoService;
 
@@ -59,6 +64,26 @@ class LuongCoSoControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors.ngayApDung").value("Chọn ngày áp dụng"))
                 .andExpect(jsonPath("$.fieldErrors.mucLuong").value("Mức lương phải > 0"));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void listReplica_withBranchSite_isRoutedToThatBranch() throws Exception {
+        when(service.list()).thenReturn(List.of(new LuongCoSoResponse(LocalDate.of(2024, 7, 1), new BigDecimal("2340000"),
+                "Nghị định 73/2024/NĐ-CP", LuongCoSoResponse.DANG_AP_DUNG)));
+
+        mvc.perform(get("/api/luong-co-so").header("X-Site", "S1"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Site-Used", "S1"))
+                .andExpect(jsonPath("$[0].ngayApDung").value("2024-07-01"))
+                .andExpect(jsonPath("$[0].trangThai").value("DANG_AP_DUNG"));
+    }
+
+    @Test
+    void listReplica_requiresBranchSite() throws Exception {
+        mvc.perform(get("/api/luong-co-so"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MISSING_SITE"));
         verifyNoInteractions(service);
     }
 }

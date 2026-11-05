@@ -103,7 +103,7 @@ app:
 
 | Máy | Dữ liệu chi nhánh của mình | Dữ liệu chi nhánh khác | Chức năng Trung tâm (danh mục chung, báo cáo toàn chuỗi) | Dropdown chi nhánh |
 |---|---|---|---|---|
-| `cn1` / `cn2` / `cn3` | xem, thêm, sửa, xoá | không (`X-Site` khác → 400 `WRONG_SITE`) | không (403 `HQ_ONLY`); thuốc xem ở màn "Thuốc (bản sao)" | hiện, bị khoá |
+| `cn1` / `cn2` / `cn3` | xem, thêm, sửa, xoá | không (`X-Site` khác → 400 `WRONG_SITE`) | không (403 `HQ_ONLY`); thuốc, bệnh, dịch vụ, lương cơ sở xem ở các màn "… (bản sao)" | hiện, bị khoá |
 | `hq` | — | **chỉ xem**, gộp cả chuỗi: bác sĩ, y tá, bệnh nhân, khoa, thiết bị đọc qua view toàn cục ở S0 (`/api/hq/*`), có cột chi nhánh | đầy đủ | không có |
 
 Frontend đọc `GET /api/system/mode` lúc mở trang rồi tự hiện đúng giao diện (dropdown khoá ở máy chi nhánh; máy Trung
@@ -251,7 +251,7 @@ FE ──(header X-Site: S1|S2|S3)──► SiteFilter ──► SiteContext ─
 | Thuốc — CRUD + so bản sao ở chi nhánh | `GET/POST /api/master/thuoc` · `PUT/DELETE /api/master/thuoc/{ma}` · `GET /api/thuoc` |
 | Bệnh (ICD-10) — CRUD | `GET/POST /api/master/benh` · `PUT/DELETE /api/master/benh/{ma}` · `GET /api/benh` |
 | Dịch vụ y tế — CRUD | `GET/POST /api/master/dich-vu` · `PUT/DELETE /api/master/dich-vu/{ma}` · `GET /api/dich-vu` |
-| Lương cơ sở — thêm mức mới, sửa / xoá mức chưa áp dụng | `GET/POST /api/master/luong-co-so` · `PUT/DELETE /api/master/luong-co-so/{yyyy-MM-dd}` |
+| Lương cơ sở — thêm mức mới, sửa / xoá mức chưa áp dụng | `GET/POST /api/master/luong-co-so` · `PUT/DELETE /api/master/luong-co-so/{yyyy-MM-dd}` · `GET /api/luong-co-so` |
 | Chi nhánh — xem, sửa thông tin | `GET /api/master/chi-nhanh` · `PUT /api/master/chi-nhanh/{maCn}` |
 | Tổng quan hệ thống | `GET /api/system/sites` (S0–S3) |
 
