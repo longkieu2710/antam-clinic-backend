@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import vn.antam.clinic.dto.request.LuongCoSoRequest;
@@ -20,9 +19,14 @@ import vn.antam.clinic.dto.response.DeleteResponse;
 import vn.antam.clinic.dto.response.LuongCoSoResponse;
 import vn.antam.clinic.service.LuongCoSoService;
 
-/** Lương cơ sở — danh mục chung, đọc/ghi tại S0 (Logical Replication đẩy xuống S1..S3). */
+/**
+ * Lương cơ sở — danh mục chung.
+ * <ul>
+ *   <li>{@code /api/master/luong-co-so}: đọc/ghi tại S0; Logical Replication tự đẩy thay đổi xuống S1..S3.</li>
+ *   <li>{@code /api/luong-co-so}: đọc bản sao ở chi nhánh đang chọn (chỉ xem; dùng được khi mất kết nối S0).</li>
+ * </ul>
+ */
 @RestController
-@RequestMapping("/api/master/luong-co-so")
 public class LuongCoSoController {
 
     private final LuongCoSoService service;
@@ -31,26 +35,36 @@ public class LuongCoSoController {
         this.service = service;
     }
 
-    @GetMapping
+    // ---------------------------------------------------------------- S0 (master)
+
+    @GetMapping("/api/master/luong-co-so")
     public List<LuongCoSoResponse> list() {
         return service.list();
     }
 
-    @PostMapping
+    @PostMapping("/api/master/luong-co-so")
     @ResponseStatus(HttpStatus.CREATED)
     public LuongCoSoResponse create(@Valid @RequestBody LuongCoSoRequest request) {
         return service.create(request);
     }
 
     /** @param ngayApDung dạng yyyy-MM-dd */
-    @PutMapping("/{ngayApDung}")
+    @PutMapping("/api/master/luong-co-so/{ngayApDung}")
     public LuongCoSoResponse update(@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate ngayApDung,
                                     @Valid @RequestBody LuongCoSoRequest request) {
         return service.update(ngayApDung, request);
     }
 
-    @DeleteMapping("/{ngayApDung}")
+    @DeleteMapping("/api/master/luong-co-so/{ngayApDung}")
     public DeleteResponse delete(@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate ngayApDung) {
         return service.delete(ngayApDung);
+    }
+
+    // ---------------------------------------------------------------- chi nhánh (bản sao)
+
+    /** Cùng truy vấn với bản gốc — SiteFilter định tuyến theo đường dẫn, nên ở đây đọc bảng LUONG_CO_SO của chi nhánh. */
+    @GetMapping("/api/luong-co-so")
+    public List<LuongCoSoResponse> listReplica() {
+        return service.list();
     }
 }

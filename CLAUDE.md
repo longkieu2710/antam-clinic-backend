@@ -126,7 +126,7 @@ The full rules are in `.claude/skills/conventions/SKILL.md`. Follow that file wh
 - `LUONG_CO_SO` is history. Levels with `NgayApDung` ≤ today can't be edited or deleted. F3 salary is computed live from visit data in `LuongRepository`. **No salary table exists, so salaries can't be locked ("chốt lương").** Bonuses are 1,000,000 ₫ per "Đã khỏi" episode ending in the month (credited to the doctor of the opening visit) and 200,000 ₫ per `HO_TRO` row in the month.
 - Tests:
   - Service tests use Mockito; controller tests use `@WebMvcTest` + `@EnableConfigurationProperties(AppProperties.class)` + `@MockitoBean`. Test names follow `method_condition_expected`.
-  - 214 tests, no DB needed. `src/test/resources/config/application.properties` blanks `app.may-nay`, so the tests don't depend on the demo-machine identity in the developer's `application.yml`. Service tests that use `TransactionTemplate` take the mock transaction manager from `LuotFixtures.txManager()`. `EntitySchemaTest` skips itself when the cluster is down.
+  - 216 tests, no DB needed. `src/test/resources/config/application.properties` blanks `app.may-nay`, so the tests don't depend on the demo-machine identity in the developer's `application.yml`. Service tests that use `TransactionTemplate` take the mock transaction manager from `LuotFixtures.txManager()`. `EntitySchemaTest` skips itself when the cluster is down.
   - Run with `-Duser.timezone=Asia/Ho_Chi_Minh` if the JVM default zone is `Asia/Saigon`, which PostgreSQL rejects.
 - `config/WebConfig` serves the built SPA from `classpath:/static/` with an `index.html` fallback for client routes.
 
